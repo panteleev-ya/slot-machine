@@ -1,0 +1,18 @@
+# secrets and runtime state - never commit
+*.env
+!*.env.example
+state.json
+cookies.json
+*.log
+.visa_watch.lock
+.slot-machine.lock
+
+# build and tooling
+/.venv/
+/build/
+/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store

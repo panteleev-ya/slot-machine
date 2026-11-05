@@ -1,0 +1,82 @@
+"""Settings file parsing and validation."""
+
+from pathlib import Path
+
+import pytest
+from visa_watch import load_config, read_env_file
+
+
+def write(tmp_path, text, mode=0o600) -> Path:
+    path = tmp_path / "x.env"
+    path.write_text(text)
+    path.chmod(mode)
+    return path
+
+
+def test_missing_file_gives_defaults(tmp_path):
+    cfg = load_config(tmp_path / "nope.env")
+    assert cfg.locale == "en-kz" and cfg.digest_hour == 9 and cfg.digest_silent is True
+    assert cfg.min_interval_minutes == 30 and cfg.backoff_hours == 3 and cfg.error_alert_after == 3
+
+
+def test_parses_values_comments_and_quotes(tmp_path):
+    cfg = load_config(
+        write(
+            tmp_path,
+            """
+# comment
+AIS_SCHEDULE_ID=1234
+AIS_FACILITY_ID = "134"
+LOCATION_LABEL='Astana embassy'
+DIGEST_HOUR=7
+DIGEST_SILENT=no
+MIN_INTERVAL_MINUTES=15.5
+ALERT_ONLY_BEFORE=2027-04-30
+not a setting line
+AIS_BASE_URL=http://example.test/
+""",
+        )
+    )
+    assert cfg.schedule_id == "1234" and cfg.facility_id == "134"
+    assert cfg.label == "Astana embassy"
+    assert cfg.digest_hour == 7 and cfg.digest_silent is False
+    assert cfg.min_interval_minutes == 15.5
+    assert cfg.alert_only_before == "2027-04-30"
+    assert cfg.ais_base == "http://example.test"
+
+
+def test_environment_overrides_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("DIGEST_HOUR", "21")
+    monkeypatch.setenv("STATE_DIR", str(tmp_path / "s"))
+    cfg = load_config(write(tmp_path, "DIGEST_HOUR=7\n"))
+    assert cfg.digest_hour == 21
+    assert cfg.state_dir == tmp_path / "s"
+
+
+def test_empty_value_keeps_default(tmp_path):
+    assert load_config(write(tmp_path, "DIGEST_HOUR=\n")).digest_hour == 9
+
+
+@pytest.mark.parametrize(
+    "line, message",
+    [
+        ("DIGEST_HOUR=24", "DIGEST_HOUR must be 0-23"),
+        ("DIGEST_HOUR=nine", "DIGEST_HOUR='nine' is not valid"),
+        ("ALERT_ONLY_BEFORE=30.04.2027", "ALERT_ONLY_BEFORE must look like"),
+        ("AIS_SCHEDULE_ID=abc", "AIS_SCHEDULE_ID should be a number"),
+        ("AIS_FACILITY_ID=13x", "AIS_FACILITY_ID should be a number"),
+    ],
+)
+def test_invalid_values_stop_with_a_clear_message(tmp_path, line, message):
+    with pytest.raises(SystemExit, match=message):
+        load_config(write(tmp_path, line + "\n"))
+
+
+def test_warns_when_file_is_readable_by_others(tmp_path, capsys):
+    read_env_file(write(tmp_path, "A=1\n", mode=0o644))
+    assert "readable by other users" in capsys.readouterr().out
+
+
+def test_no_warning_for_private_file(tmp_path, capsys):
+    assert read_env_file(write(tmp_path, "A=1\n")) == {"A": "1"}
+    assert capsys.readouterr().out == ""

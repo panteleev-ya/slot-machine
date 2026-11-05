@@ -1,0 +1,23 @@
+[project]
+name = "slot-machine"
+version = "0.1.0"
+description = "Watch the earliest US visa appointment date at one AIS location and report it to Telegram."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []  # standard library only: the Pi runs it as a zipapp
+
+[project.scripts]
+slot-machine = "slot_machine.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]  # "." only while tests still target the draft visa_watch.py
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
