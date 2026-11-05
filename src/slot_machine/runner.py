@@ -32,6 +32,11 @@ def run_check(
         now = timeutil.utcnow()
         if new_cookies is not None:
             save_json(cookie_path, new_cookies)
+            # session_expired_at is only set once the "session ended" alert reached the owner
+            # (it's rolled back otherwise), so this is a renewal the bot asked for. Keep the
+            # first time it asked, in case a renewal attempt fails and another one follows.
+            if state.get("session_expired_at") and not state.get("renew_requested_at"):
+                state["renew_requested_at"] = state["session_expired_at"]
             state.update(
                 session_set_at=iso(now),
                 session_expired_at=None,

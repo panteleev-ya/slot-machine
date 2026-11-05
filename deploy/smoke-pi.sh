@@ -84,6 +84,6 @@ echo "ok   renewal page: new session accepted, wrong token refused"
 sm --status | sed 's/^/  /'
 messages
 count=$(curl -fsS "$telegram/_messages" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
-[[ $count == 3 ]] || fail "expected 3 Telegram messages, got $count"
+[[ $count == 4 ]] || fail "expected 4 Telegram messages (start, sooner, ended, resumed), got $count"
 echo "SMOKE PASSED"
 EOF

@@ -19,7 +19,7 @@ EMPTY_IS_REAL_AFTER = timedelta(hours=24)
 
 @dataclass
 class Msg:
-    kind: str  # baseline | welcome | sooner | expired | error | digest
+    kind: str  # baseline | welcome | sooner | expired | renewed | error | digest
     text: str
     silent: bool = False
     rollback: dict = field(default_factory=dict)  # state to restore if it reached nobody
@@ -177,6 +177,13 @@ def process(
                     to=cfg.chat_ids[:1],
                 )
             )
+
+    if res.kind in ("ok", "empty") and state.get("renew_requested_at"):
+        # the owner was asked to renew and the new session works: tell them it's done
+        since = state.pop("renew_requested_at")
+        earliest = res.dates[0] if res.kind == "ok" else None
+        text = messages.text_renewed(cfg, earliest, parse_ts(since), now, today)
+        msgs.append(Msg("renewed", text, rollback={"renew_requested_at": since}, to=cfg.chat_ids[:1]))
 
     if state.get("baseline_sent"):
         msgs += _welcome_new_chats(state, cfg, now, today)

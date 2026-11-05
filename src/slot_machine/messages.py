@@ -98,6 +98,25 @@ def text_expired(cfg: Config, state: dict) -> str:
     return "\n".join(lines)
 
 
+def text_renewed(
+    cfg: Config, earliest: str | None, since: datetime | None, now: datetime, today: date
+) -> str:
+    """To the owner, after the session they were asked to renew works again."""
+    paused = f" Checks were paused for {fmt_dur((now - since).total_seconds())}." if since else ""
+    first = (
+        f"Earliest date now: {fmt_day(earliest, today)}"
+        if earliest
+        else "No dates came back at the first check (none open, or the site is throttling)."
+    )
+    return "\n".join(
+        [
+            f"<b>🔓 Visa slot watch resumed - {esc(cfg.label)}</b>",
+            f"The new session works; checks continue on schedule.{paused}",
+            first,
+        ]
+    )
+
+
 def text_error(cfg: Config, state: dict) -> str:
     return "\n".join(
         [

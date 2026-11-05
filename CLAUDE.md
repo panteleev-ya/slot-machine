@@ -48,6 +48,9 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   server on deploy/push-config (pattern `slot-machin[e] --serve` so pkill can't match its own shell).
 - `extension/`: MV3, no build. Only `cookies` + `storage`, hosts ais.usvisa-info.com and yarikos.local;
   network text only via textContent. Loaded unpacked by the user.
+- "Watch resumed": when new cookies are saved while `session_expired_at` is set (only set once the
+  "session ended" alert reached the owner), the runner records `renew_requested_at` (first expiry);
+  the next ok/empty check sends `renewed` to the owner and clears it (rolled back if undelivered).
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow
