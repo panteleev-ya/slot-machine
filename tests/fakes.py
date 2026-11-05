@@ -100,10 +100,14 @@ class FakeAIS:
                 if self.body is not None
                 else json.dumps([{"date": d, "business_day": True} for d in self.dates]).encode()
             )
-            extra = {}
-            if self.rotate_cookie:
-                self.sessions.add(self.rotate_cookie)
-                extra["Set-Cookie"] = f"_yatri_session={self.rotate_cookie}; path=/; secure; HttpOnly"
+            # like the real site: every JSON reply re-issues the session cookie (same value
+            # unless a test asks for a new one), plus the ETag the browser would cache against
+            session = self.rotate_cookie or cookies["_yatri_session"]
+            self.sessions.add(session)
+            extra = {
+                "Set-Cookie": f"_yatri_session={session}; path=/; HttpOnly; Secure; SameSite=None",
+                "ETag": 'W/"0123456789abcdef"',
+            }
             return send(h, 200, body, "application/json", extra)
         if path == f"{base}/account":
             if not signed_in:

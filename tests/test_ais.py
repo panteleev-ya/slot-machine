@@ -179,9 +179,23 @@ def test_fetch_sends_browser_like_ajax_request(cfg, ais):
     assert (res.kind, res.dates) == ("ok", ["2027-09-01"])
     method, path, hdrs = ais.fake.requests[-1]
     assert path == "/en-kz/niv/schedule/1234/appointment/days/134.json"
-    assert hdrs["X-Requested-With"] == "XMLHttpRequest"
-    assert hdrs["Cookie"] == f"_yatri_session={VALID_SESSION}"
-    assert hdrs["Referer"] == cfg.appointment_url
+    # the request that worked from curl on 2026-11-05, minus the version-specific client hints
+    expected = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": f"{cfg.appointment_url}?confirmed_limit_message=1&amp;commit=Continue",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "User-Agent": cfg.user_agent,
+        "X-Requested-With": "XMLHttpRequest",
+        "Cookie": f"_yatri_session={VALID_SESSION}",
+    }
+    assert {k: hdrs.get(k) for k in expected} == expected
+    assert not [k for k in hdrs if k.lower().startswith("sec-ch-ua")]
+    assert "If-None-Match" not in hdrs  # a conditional request would get 304 and no dates
 
 
 def test_fetch_sees_expiry_redirect(cfg, ais):

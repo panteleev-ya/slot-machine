@@ -92,14 +92,35 @@ def parse_cookie_input(raw: str) -> dict:
 # --------------------------------------------------------------------------- the dates request
 
 
+def days_referer(cfg: Config) -> str:
+    # The page the browser is on when it loads the dates, exactly as Chrome sent it on
+    # 2026-11-05, including the "&amp;" the site's own link puts into that URL.
+    return f"{cfg.appointment_url}?confirmed_limit_message=1&amp;commit=Continue"
+
+
 def ais_headers(cfg: Config, cookies: dict, json_api: bool = True) -> dict:
-    headers = {"User-Agent": cfg.user_agent, "Cookie": cookie_header(cookies)}
+    """Headers of the request the Reschedule page itself makes (docs/ais-notes.md).
+
+    Only what describes this kind of request: a same-site background fetch of JSON.
+    Version-specific client hints (sec-ch-ua*) are left out because they would go
+    stale against USER_AGENT; _yatri_session is the only cookie the site needs.
+    """
+    headers = {
+        "User-Agent": cfg.user_agent,
+        "Cookie": cookie_header(cookies),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
     if json_api:
         headers.update(
             {
                 "Accept": "application/json, text/javascript, */*; q=0.01",
                 "X-Requested-With": "XMLHttpRequest",
-                "Referer": cfg.appointment_url,
+                "Referer": days_referer(cfg),
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
             }
         )
     else:
