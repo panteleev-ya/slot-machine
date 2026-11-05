@@ -9,7 +9,7 @@ REMOTE  := .local/bin/slot-machine
 LOG     := .local/state/slot-machine/watch.log
 
 .PHONY: help dev test lint fmt build clean deploy cron-on cron-off smoke-pi status logs \
-        config edit-config push-config find-chat-id test-telegram set-cookie discover
+        config edit-config push-config find-chat-id test-telegram set-cookie discover check-now
 
 help:
 	@echo "On the Mac:"
@@ -27,6 +27,7 @@ help:
 	@echo "  make set-cookie     paste a fresh _yatri_session (hidden prompt)"
 	@echo "  make discover       list your schedule and location ids"
 	@echo "  make cron-on        checks on CRON_SCHEDULE   (make cron-off: off)"
+	@echo "  make check-now      one real check right now (ignores the interval and any pause)"
 	@echo "  make status         / make logs"
 
 $(VENV)/bin/pytest: requirements-dev.txt
@@ -92,3 +93,8 @@ set-cookie:
 
 discover:
 	@$(SSH) $(PI) '$(REMOTE) --discover'
+
+# One real check now, outside cron. --force skips MIN_INTERVAL_MINUTES and any back-off;
+# the run lock still keeps it from overlapping a cron run. Output also goes to the log.
+check-now:
+	@$(SSH) $(PI) 'set -o pipefail; $(REMOTE) --force 2>&1 | tee -a $(LOG)'

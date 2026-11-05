@@ -52,7 +52,9 @@ your copy: refreshing keeps only values.
 4. **Start the schedule.** `make cron-on`. To change when it runs later: `make edit-config`, set
    `CRON_SCHEDULE` (five crontab fields, Pi time zone), `make push-config`. A running schedule updates at once.
 
-Day to day: `make status`, `make logs`. After a "session ended" alert: sign in again, `make set-cookie`.
+Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it
+skips the interval and any throttle pause, so use it sparingly). After a "session ended" alert: sign in
+again, `make set-cookie`.
 
 ## Development
 
