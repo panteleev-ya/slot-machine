@@ -29,7 +29,7 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   fields because it is written into the Pi's crontab through a remote shell.
 
 - Telegram fanout: `TELEGRAM_CHAT_ID` is a comma list; `Msg.to` picks recipients (None = all;
-  `expired`/`error` go to the first chat only). `state["welcomed_chats"]` tracks who got a baseline
+  `error` goes to the first chat only; `expired` to all, since anyone listed may renew). `state["welcomed_chats"]` tracks who got a baseline
   or welcome; state without it is treated as "only the first chat was greeted". A message is rolled
   back only if it reached nobody; a missed baseline/welcome is retried for that chat alone.
 
@@ -48,9 +48,12 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   server on deploy/push-config (pattern `slot-machin[e] --serve` so pkill can't match its own shell).
 - `extension/`: MV3, no build. Only `cookies` + `storage`, hosts ais.usvisa-info.com and yarikos.local;
   network text only via textContent. Loaded unpacked by the user.
-- "Watch resumed": when new cookies are saved while `session_expired_at` is set (only set once the
-  "session ended" alert reached the owner), the runner records `renew_requested_at` (first expiry);
-  the next ok/empty check sends `renewed` to the owner and clears it (rolled back if undelivered).
+- "Watch resumed": the runner records the chats an `expired` alert reached in
+  `state["expiry_told_chats"]` (state without it = only the owner was told). When new cookies are
+  saved while `session_expired_at` is set (only set once that alert reached a chat), it records
+  `renew_requested_at` (first expiry); the next ok/empty check sends `renewed` to the told chats still
+  listed and clears both (rolled back if it reached nobody). `/renew` answers any listed chat.
+  `make share-extension` zips `extension/` and copies the current token (`renew_token.py --copy`).
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow

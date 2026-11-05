@@ -9,9 +9,12 @@ your password, solves no captcha, and stores only the Pi's address and token.
 
 ## Install (once)
 
-1. `make renew-token` on the Mac. It sets up the Pi's side and copies the token to the clipboard.
+1. Get the token. On the Mac with the repo: `make renew-token` sets up the Pi's side and copies it
+   to the clipboard. Someone else: you get this folder as `slot-machine-extension.zip` plus the
+   token from whoever runs the Pi (`make share-extension`). Unzip it somewhere it can stay, such as
+   Documents: Chrome loads it from there every time.
 2. Chrome → `chrome://extensions` → turn on **Developer mode** (top right) → **Load unpacked** →
-   pick this `extension/` folder.
+   pick this folder (`extension/`, or the unzipped `slot-machine-extension`).
 3. Pin it (puzzle-piece icon → pin **slot-machine: renew visa session**).
 4. Right-click its icon → **Options** → paste the token → **Save**. The address is already
    `http://yarikos.local:8080`.
@@ -27,6 +30,8 @@ When the "session ended" message arrives:
 2. Click the extension → **Send session to the Pi**. It answers with the earliest date.
 
 Don't sign out of the visa site afterwards: that ends the Pi's session too. Just close the tab.
+Everyone who got "session ended" gets "watch resumed" once it works again: if it has already
+arrived, someone else renewed it and there's nothing to do.
 
 After `git pull` or edits here, click the reload arrow on the extension's card in
 `chrome://extensions`. After `make renew-token` again (a new token), paste it into Options again.

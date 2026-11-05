@@ -35,7 +35,7 @@ HELP = (
     "/set_alert_before YYYY-MM-DD - alert me only about dates before this one\n"
     "/set_alert_before off - alert me about every sooner date\n"
     "/set_alert_before - show my setting\n"
-    "/renew - (owner) link to renew the visa-site session\n"
+    "/renew - how to renew the visa-site session, with the renewal page link\n"
     "Alerts about sooner dates and the daily summary arrive on their own."
 )
 
@@ -123,7 +123,7 @@ def check_reply(cfg: Config, res: FetchResult | None, now) -> str:
             f"Scheduled checks pause for {fmt_dur(cfg.backoff_hours * 3600)}."
         )
     if res.kind == "expired" or "session expired" in res.detail or "no session cookie" in res.detail:
-        return "The visa-site session has ended, so nothing was checked. The owner needs to sign in again."
+        return "The visa-site session has ended, so nothing was checked. Sign in again to renew it: /renew says how."
     if res.kind == "skipped":
         return f"Nothing was checked: {esc(res.detail)}."
     return f"⚠️ The check failed: {esc(res.detail)}"
@@ -167,9 +167,7 @@ def set_alert_before(cfg: Config, bot: dict, chat_id: str, args: list[str]) -> s
 
 
 def renew_reply(cfg: Config, chat_id: str) -> str:
-    """The current renewal link, for the owner (it's their visa account)."""
-    if chat_id != cfg.owner_chat:
-        return "Only the owner can renew the visa-site session."
+    """The current renewal link. Any listed chat may renew: strangers never get this far."""
     if not cfg.renew_url:
         return "The renewal page isn't set up. Run `make renew-token` on the Mac."
     state = load_json(cfg.state_dir / "state.json", {})

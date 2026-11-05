@@ -101,7 +101,7 @@ def text_expired(cfg: Config, state: dict) -> str:
 def text_renewed(
     cfg: Config, earliest: str | None, since: datetime | None, now: datetime, today: date
 ) -> str:
-    """To the owner, after the session they were asked to renew works again."""
+    """To the chats that heard the session ended, once a renewed session works."""
     paused = f" Checks were paused for {fmt_dur((now - since).total_seconds())}." if since else ""
     first = (
         f"Earliest date now: {fmt_day(earliest, today)}"

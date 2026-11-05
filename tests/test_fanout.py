@@ -70,7 +70,7 @@ def test_daily_summary_goes_to_everyone_quietly(two, ais, tg, clock):
     assert {m["disable_notification"] for m in digests} == {"true"}
 
 
-def test_housekeeping_alerts_go_to_the_owner_only(two, ais, tg, clock):
+def test_errors_go_to_the_owner_and_session_ended_to_everyone(two, ais, tg, clock):
     ais.fake.status = 500
     for _ in range(3):
         clock.advance(hours=1)
@@ -83,6 +83,7 @@ def test_housekeeping_alerts_go_to_the_owner_only(two, ais, tg, clock):
     assert later == [
         (OWNER, "<b>⚠️ Visa slot watch: 3 checks in a row failed</b>"),
         (OWNER, "<b>🔑 Visa slot watch paused - the AIS session ended</b>"),
+        (FRIEND, "<b>🔑 Visa slot watch paused - the AIS session ended</b>"),
     ]
 
 

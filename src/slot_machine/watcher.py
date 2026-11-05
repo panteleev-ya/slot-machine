@@ -26,9 +26,21 @@ class Msg:
     to: list[str] | None = None  # chat ids; None = every configured chat
 
 
-# "expired" and "error" go to the owner (first chat) only: they ask for things only the owner
-# can do. Everything else goes to every chat. Kinds that count as a chat's welcome: a chat they didn't reach gets a welcome later.
+# "error" goes to the owner (first chat) only: fixing it needs the Mac or the Pi. Everything else
+# goes to every chat, "session ended" included, since anyone listed can renew the session; "watch
+# resumed" goes to the chats that heard it ended. Kinds that count as a chat's welcome: a chat
+# they didn't reach gets a welcome later.
 WELCOMES = ("baseline", "welcome")
+
+
+# state key: the chats a "session ended" alert reached since the session last worked
+EXPIRY_TOLD = "expiry_told_chats"
+
+
+def record_expiry_told(state: dict, chats: list[str]) -> None:
+    """The runner calls this with the chats an "expired" alert reached."""
+    known = state.get(EXPIRY_TOLD) or []
+    state[EXPIRY_TOLD] = known + [c for c in chats if c not in known]
 
 
 def unmark_welcomed(state: dict, chat: str) -> None:
@@ -157,7 +169,6 @@ def process(
                 "expired",
                 messages.text_expired(cfg, state),
                 rollback={"session_expired_at": None},
-                to=cfg.chat_ids[:1],
             )
         )
 
@@ -179,11 +190,18 @@ def process(
             )
 
     if res.kind in ("ok", "empty") and state.get("renew_requested_at"):
-        # the owner was asked to renew and the new session works: tell them it's done
+        # the chats were asked to renew and the new session works: tell them it's done, so
+        # nobody else signs in for nothing
+        rollback = snapshot(state, "renew_requested_at", EXPIRY_TOLD)
         since = state.pop("renew_requested_at")
-        earliest = res.dates[0] if res.kind == "ok" else None
-        text = messages.text_renewed(cfg, earliest, parse_ts(since), now, today)
-        msgs.append(Msg("renewed", text, rollback={"renew_requested_at": since}, to=cfg.chat_ids[:1]))
+        told = state.pop(EXPIRY_TOLD, None)
+        if told is None:
+            told = cfg.chat_ids[:1]  # state from when only the owner heard about expiries
+        to = [c for c in cfg.chat_ids if c in told]
+        if to:
+            earliest = res.dates[0] if res.kind == "ok" else None
+            text = messages.text_renewed(cfg, earliest, parse_ts(since), now, today)
+            msgs.append(Msg("renewed", text, rollback=rollback, to=to))
 
     if state.get("baseline_sent"):
         msgs += _welcome_new_chats(state, cfg, now, today)

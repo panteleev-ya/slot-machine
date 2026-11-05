@@ -7,11 +7,12 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
   (optionally only before `ALERT_ONLY_BEFORE`).
 - **Quiet daily summary** at `DIGEST_HOUR`: earliest date, change since yesterday, best date
   seen in between, number of checks, session health. If it stops arriving, something broke.
-- **Session ended** when the site logs the session out, then **watch resumed** once you renewed it
+- **Session ended** when the site logs the session out, then **watch resumed** once someone renewed it
   (with how long checks were paused), and **checks failing** after 3 in a row.
 - **Several people** can get the alerts: `TELEGRAM_CHAT_ID` takes a comma-separated list. Everyone
-  gets the date alerts and the summary; only the first chat (yours) gets "session ended" and
-  "checks failing". Nobody can subscribe themselves. To add someone: they message the bot (`/start`),
+  gets the date alerts, the summary and "session ended" (anyone listed can renew it), and everyone who
+  got "session ended" gets "watch resumed", so nobody else signs in for nothing. Only the first chat
+  (yours) gets "checks failing". Nobody can subscribe themselves. To add someone: they message the bot (`/start`),
   `make find-chat-id` shows their id, add it to `TELEGRAM_CHAT_ID`, `make push-config`. The next check
   sends them a welcome with the current earliest date.
 - **`/check` in Telegram** (in a listed chat) runs a check right away and answers with the earliest
@@ -77,8 +78,12 @@ renewing quick, the Pi runs a small page on the home network and there's a Chrom
    the token in its options.
 3. When "session ended" arrives: sign in to the visa site in Chrome, click the extension. Done.
 
+To let someone else in `TELEGRAM_CHAT_ID` renew it too: `make share-extension` zips the extension
+into `dist/slot-machine-extension.zip` and puts the current token on the clipboard (nothing is
+rotated). Send them both; they install it the same way. They sign in with the same visa account.
+
 The alert also links to the page (valid only until that session is renewed), where you can paste a
-cookie by hand; `/renew` in Telegram sends the current link to the owner. The page is plain http and
+cookie by hand; `/renew` in Telegram sends the current link to any listed chat. The page is plain http and
 for the home network only: never forward its port. It only accepts a session, never shows one.
 
 Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it

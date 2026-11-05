@@ -147,8 +147,9 @@ def test_link_depends_on_the_secret_and_the_expiry(expired):
 
 
 def test_session_ended_alert_links_to_the_page(expired, tg):
-    alert = next(m for m in tg.fake.messages if "session ended" in m["text"])
-    assert alert["chat_id"] == OWNER
+    alerts = [m for m in tg.fake.messages if "session ended" in m["text"]]
+    assert [m["chat_id"] for m in alerts] == [OWNER, FRIEND]  # anyone listed can renew
+    alert = alerts[0]
     token = link_token(expired, state(expired))
     assert f'<a href="http://yarikos.local:8080/?t={token}">renewal page</a>' in alert["text"]
     assert "click the slot-machine extension in Chrome" in alert["text"]
@@ -341,9 +342,16 @@ def test_renew_command_gives_the_owner_the_link(expired, tg):
     assert f'<a href="http://yarikos.local:8080/?t={token}">renewal page</a>' in reply
 
 
-def test_renew_command_is_owner_only(expired, tg):
+def test_renew_command_works_in_every_listed_chat(expired, tg):
     bot.poll(expired, 0)
-    assert renew_reply(expired, tg, FRIEND) == ["Only the owner can renew the visa-site session."]
+    [mine] = renew_reply(expired, tg, OWNER)
+    [theirs] = renew_reply(expired, tg, FRIEND)
+    assert theirs == mine and "renewal page" in theirs
+
+
+def test_renew_command_ignores_strangers(expired, tg):
+    bot.poll(expired, 0)
+    assert renew_reply(expired, tg, "999") == []
 
 
 def test_renew_command_with_an_active_session(live, tg):
@@ -364,13 +372,39 @@ def test_renew_command_without_the_page(cfg, tg, ais, clock):
 # --------------------------------------------------------------------------- make renew-token
 
 
-def run_token_script(local):
+def run_token_script(local, *flags, path="/usr/bin:/bin"):
     return subprocess.run(
-        [sys.executable, str(ROOT / "deploy" / "renew_token.py"), str(local)],
+        [sys.executable, str(ROOT / "deploy" / "renew_token.py"), *flags, str(local)],
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin"},  # pbcopy may exist; the token must not be printed either way
+        env={"PATH": path},  # pbcopy may exist; the token must not be printed either way
     )
+
+
+def fake_pbcopy(tmp_path) -> tuple[str, Path]:
+    """A pbcopy that writes the clipboard to a file: (PATH to use, that file)."""
+    bin_dir, clip = tmp_path / "bin", tmp_path / "clipboard"
+    bin_dir.mkdir()
+    script = bin_dir / "pbcopy"
+    script.write_text(f"#!/bin/sh\ncat > {clip}\n")
+    script.chmod(0o755)
+    return f"{bin_dir}:/usr/bin:/bin", clip
+
+
+def test_token_script_copy_shares_the_current_token_unchanged(tmp_path):
+    text = f"RENEW_URL=http://yarikos.local:8080\nRENEW_TOKEN={TOKEN}\n"
+    local = write_env(tmp_path, text)
+    path, clip = fake_pbcopy(tmp_path)
+    proc = run_token_script(local, "--copy", path=path)
+    assert proc.returncode == 0, proc.stderr
+    assert clip.read_text() == TOKEN and local.read_text() == text
+    assert TOKEN not in proc.stdout + proc.stderr
+
+
+def test_token_script_copy_needs_a_token(tmp_path):
+    local = write_env(tmp_path, "RENEW_URL=\nRENEW_TOKEN=\n")
+    proc = run_token_script(local, "--copy", path=fake_pbcopy(tmp_path)[0])
+    assert proc.returncode != 0 and "make renew-token" in proc.stderr
 
 
 def test_token_script_fills_both_values_without_printing_the_token(tmp_path):

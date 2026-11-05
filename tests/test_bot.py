@@ -146,7 +146,7 @@ def test_check_with_expired_session(live, ais, tg, clock):
     tg.fake.say(FRIEND, "/check")
     bot.poll(live, 0)
     assert replies(tg, FRIEND) == [
-        "The visa-site session has ended, so nothing was checked. The owner needs to sign in again."
+        "The visa-site session has ended, so nothing was checked. Sign in again to renew it: /renew says how."
     ]
     assert ais.fake.days_requests() == 2
 

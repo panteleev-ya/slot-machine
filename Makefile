@@ -9,7 +9,8 @@ REMOTE  := .local/bin/slot-machine
 LOG     := .local/state/slot-machine/watch.log
 
 .PHONY: help dev test lint fmt build clean deploy cron-on cron-off smoke-pi status logs \
-        config edit-config push-config find-chat-id test-telegram set-cookie discover check-now renew-token
+        config edit-config push-config find-chat-id test-telegram set-cookie discover check-now renew-token \
+        share-extension
 
 help:
 	@echo "On the Mac:"
@@ -29,6 +30,7 @@ help:
 	@echo "  make cron-on        checks on CRON_SCHEDULE   (make cron-off: off)"
 	@echo "  make check-now      one real check right now (ignores the interval and any pause)"
 	@echo "  make renew-token    set up the renewal page's secret (copied for the Chrome extension)"
+	@echo "  make share-extension  zip the Chrome extension for someone else, current token on the clipboard"
 	@echo "  make status         / make logs"
 
 $(VENV)/bin/pytest: requirements-dev.txt
@@ -105,3 +107,12 @@ check-now:
 renew-token: config
 	@$(PYTHON) deploy/renew_token.py
 	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
+
+# The Chrome extension for another person in TELEGRAM_CHAT_ID: a zip to send them (AirDrop), and the
+# current RENEW_TOKEN on the clipboard for its options. Nothing is rotated or pushed.
+share-extension:
+	@mkdir -p dist && rm -rf dist/slot-machine-extension dist/slot-machine-extension.zip
+	@cp -R extension dist/slot-machine-extension
+	@cd dist && zip -qr slot-machine-extension.zip slot-machine-extension -x '*/.*' && rm -rf slot-machine-extension
+	@echo "Made dist/slot-machine-extension.zip (open it in Finder: open dist)."
+	@$(PYTHON) deploy/renew_token.py --copy

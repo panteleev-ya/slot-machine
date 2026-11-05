@@ -1,4 +1,5 @@
-"""The "watch resumed" message after a renewal the bot asked for."""
+"""The "watch resumed" message after a renewal the bot asked for: it goes to every chat that
+heard the session ended, so nobody else signs in for nothing."""
 
 import json
 
@@ -7,7 +8,7 @@ import pytest
 from slot_machine import renew
 from slot_machine.ais import FetchResult
 from slot_machine.runner import run_check
-from slot_machine.watcher import process
+from slot_machine.watcher import EXPIRY_TOLD, process
 
 from fakes import VALID_SESSION
 from helpers import T0, make_cfg, ok
@@ -31,7 +32,7 @@ def state(cfg) -> dict:
 
 @pytest.fixture
 def ended(cfg, ais, tg, clock):
-    """Two chats; the session ended an hour after the baseline and the owner was told."""
+    """Two chats; the session ended an hour after the baseline and both were told."""
     cfg.chat_id = f"{OWNER},{FRIEND}"
     ais.fake.dates = ["2027-09-01"]
     ais.fake.sessions.add(FRESH["_yatri_session"])
@@ -39,25 +40,28 @@ def ended(cfg, ais, tg, clock):
     ais.fake.sessions.discard(VALID_SESSION)
     clock.advance(hours=1)
     run_check(cfg)
-    assert lines(tg, OWNER)[-1] == "<b>🔑 Visa slot watch paused - the AIS session ended</b>"
+    for chat in (OWNER, FRIEND):
+        assert lines(tg, chat)[-1] == "<b>🔑 Visa slot watch paused - the AIS session ended</b>"
+    assert state(cfg)[EXPIRY_TOLD] == [OWNER, FRIEND]
     tg.fake.messages.clear()
     return cfg
 
 
-def test_renewal_after_the_alert_is_confirmed_to_the_owner(ended, tg, clock):
+def test_renewal_after_the_alert_is_confirmed_to_everyone_told(ended, tg, clock):
     clock.advance(minutes=20)
     run_check(ended, force=True, new_cookies=FRESH)
-    [msg] = resumed(tg)
-    assert msg["chat_id"] == OWNER
-    assert msg["text"] == (
-        "<b>🔓 Visa slot watch resumed - Astana</b>\n"
-        "The new session works; checks continue on schedule. Checks were paused for 20m.\n"
-        "Earliest date now: Wed Sep 1, 2027 (in 300 days)"
-    )
-    assert "renew_requested_at" not in state(ended)
+    msgs = resumed(tg)
+    assert [m["chat_id"] for m in msgs] == [OWNER, FRIEND]
+    for msg in msgs:
+        assert msg["text"] == (
+            "<b>🔓 Visa slot watch resumed - Astana</b>\n"
+            "The new session works; checks continue on schedule. Checks were paused for 20m.\n"
+            "Earliest date now: Wed Sep 1, 2027 (in 300 days)"
+        )
+    assert "renew_requested_at" not in state(ended) and EXPIRY_TOLD not in state(ended)
     clock.advance(hours=1)
     run_check(ended)
-    assert len(resumed(tg)) == 1  # once
+    assert len(resumed(tg)) == 2  # once per chat
 
 
 def test_renewal_through_the_extension_is_confirmed_too(ended, tg, clock):
@@ -65,6 +69,26 @@ def test_renewal_through_the_extension_is_confirmed_too(ended, tg, clock):
     clock.advance(minutes=5)
     status, result = renew.apply_cookie(ended, FRESH["_yatri_session"], via="extension")
     assert status == 200 and result["ok"]
+    assert [m["chat_id"] for m in resumed(tg)] == [OWNER, FRIEND]
+
+
+def test_only_chats_that_heard_it_ended_hear_it_resumed(cfg, ais, tg, clock):
+    cfg.chat_id = f"{OWNER},{FRIEND}"
+    ais.fake.dates = ["2027-09-01"]
+    ais.fake.sessions.add(FRESH["_yatri_session"])
+    run_check(cfg, force=True, new_cookies=JAR)
+    ais.fake.sessions.discard(VALID_SESSION)
+    tg.fake.fail_chats = {FRIEND}
+    clock.advance(hours=1)
+    run_check(cfg)  # the "session ended" alert reaches only the owner
+    tg.fake.fail_chats = set()
+    run_check(cfg, force=True, new_cookies=FRESH)
+    assert [m["chat_id"] for m in resumed(tg)] == [OWNER]
+
+
+def test_a_chat_removed_meanwhile_hears_nothing(ended, tg):
+    ended.chat_id = OWNER
+    run_check(ended, force=True, new_cookies=FRESH)
     assert [m["chat_id"] for m in resumed(tg)] == [OWNER]
 
 
@@ -97,25 +121,27 @@ def test_pause_counts_from_the_first_alert_after_a_failed_attempt(ended, ais, tg
     assert lines(tg, OWNER) == ["<b>🔑 Visa slot watch paused - the AIS session ended</b>"]
     clock.advance(minutes=20)
     run_check(ended, force=True, new_cookies=FRESH)
-    [msg] = resumed(tg)
-    assert "Checks were paused for 30m." in msg["text"]
+    msgs = resumed(tg)
+    assert [m["chat_id"] for m in msgs] == [OWNER, FRIEND]
+    assert "Checks were paused for 30m." in msgs[0]["text"]
 
 
 def test_confirmation_when_the_first_check_finds_no_dates(ended, ais, tg, clock):
     ais.fake.dates = []
     run_check(ended, force=True, new_cookies=FRESH)
-    [msg] = resumed(tg)
+    msg = resumed(tg)[0]
     assert "No dates came back at the first check (none open, or the site is throttling)." in msg["text"]
 
 
 def test_failed_confirmation_is_retried(ended, tg, clock):
-    tg.fake.fail_chats = {OWNER}
+    tg.fake.fail_chats = {OWNER, FRIEND}
     run_check(ended, force=True, new_cookies=FRESH)
     assert resumed(tg) == [] and state(ended)["renew_requested_at"]
+    assert state(ended)[EXPIRY_TOLD] == [OWNER, FRIEND]
     tg.fake.fail_chats = set()
     clock.advance(hours=1)
     run_check(ended)
-    assert [m["chat_id"] for m in resumed(tg)] == [OWNER]
+    assert [m["chat_id"] for m in resumed(tg)] == [OWNER, FRIEND]
 
 
 def test_decision_logic():
@@ -132,5 +158,9 @@ def test_decision_logic():
     still = dict(st)
     process(still, FetchResult("expired", detail="HTTP 302"), T0, cfg)
     assert still["renew_requested_at"] == T0.isoformat()  # kept until a session works
+    # state from before everyone was told: only the owner heard the session ended
     [m] = [m for m in process(dict(st), ok("2027-09-01"), T0, cfg) if m.kind == "renewed"]
-    assert m.to == [OWNER] and m.rollback == {"renew_requested_at": T0.isoformat()}
+    assert m.to == [OWNER] and m.rollback == {"renew_requested_at": T0.isoformat(), EXPIRY_TOLD: None}
+    told = dict(st, **{EXPIRY_TOLD: [FRIEND, OWNER]})
+    [m] = [m for m in process(told, ok("2027-09-01"), T0, cfg) if m.kind == "renewed"]
+    assert m.to == [OWNER, FRIEND] and EXPIRY_TOLD not in told
