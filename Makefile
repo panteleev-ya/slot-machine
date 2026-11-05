@@ -41,11 +41,7 @@ fmt: dev
 	$(VENV)/bin/ruff format src tests
 
 build:
-	rm -rf build/zipapp && mkdir -p build/zipapp dist
-	cp -R src/slot_machine build/zipapp/
-	find build/zipapp -name __pycache__ -type d -prune -exec rm -rf {} +
-	$(PYTHON) -m zipapp build/zipapp -c -p '/usr/bin/env python3' -m 'slot_machine.cli:main' -o $(APP)
-	@echo "built $(APP) ($$(wc -c < $(APP) | tr -d ' ') bytes)"
+	$(PYTHON) deploy/build.py $(APP)
 
 clean:
 	rm -rf build dist .pytest_cache .ruff_cache

@@ -62,7 +62,7 @@ def text_expired(cfg: Config, state: dict) -> str:
         lines.append(f"That session lasted {fmt_dur((ok_at - set_at).total_seconds())}.")
     lines += [
         f"To resume: sign in at {esc(cfg.sign_in_url)}, copy the _yatri_session cookie, then run",
-        "<code>python3 visa_watch.py --set-cookie</code>",
+        "<code>slot-machine --set-cookie</code>",
         "No requests are sent until then.",
     ]
     return "\n".join(lines)

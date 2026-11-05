@@ -14,7 +14,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None
 
-LOCK_NAME = ".visa_watch.lock"
+LOCK_NAME = ".slot-machine.lock"
 
 
 def load_json(path: Path, default):

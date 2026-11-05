@@ -168,7 +168,7 @@ def test_dry_run_prints_and_saves_nothing(cfg, ais, tg, clock, capsys):
 def test_second_run_waits_for_lock(cfg, clock, capsys):
     fcntl = pytest.importorskip("fcntl")
     cfg.state_dir.mkdir(parents=True)
-    with open(cfg.state_dir / ".visa_watch.lock", "w") as fh:
+    with open(cfg.state_dir / ".slot-machine.lock", "w") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert run_check(cfg) == (0, None)
     assert "another run is in progress" in capsys.readouterr().out

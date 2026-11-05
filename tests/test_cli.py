@@ -54,9 +54,32 @@ def test_set_cookie_garbage_not_saved(env_file, tmp_path):
 
 
 def test_config_path_from_environment(env_file, ais, tg, clock, monkeypatch):
-    monkeypatch.setenv("VISA_WATCH_CONFIG", str(env_file))
+    monkeypatch.setenv("SLOT_MACHINE_CONFIG", str(env_file))
     assert main(["--test-telegram"]) == 0
-    assert tg.fake.messages[-1]["text"].startswith("✅ Test message")
+    assert tg.fake.messages[-1]["text"] == "✅ Test message from slot-machine - notifications work."
+
+
+def test_default_config_location_is_xdg(env_file, tmp_path, tg, clock):
+    home_cfg = tmp_path / "home" / ".config" / "slot-machine" / "slot-machine.env"
+    home_cfg.parent.mkdir(parents=True)
+    env_file.rename(home_cfg)
+    assert main(["--test-telegram"]) == 0
+    assert len(tg.fake.messages) == 1
+
+
+def test_status_shows_where_files_live(env_file, tmp_path, capsys):
+    assert run(env_file, "--status") == 0
+    out = capsys.readouterr().out
+    assert f"Settings:   {env_file}\n" in out
+    assert f"State:      {tmp_path / 'state'}\n" in out
+    assert "Earliest:   none / unknown" in out and "Last check: never" in out
+
+
+def test_version(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.strip() == "slot-machine 0.1.0"
 
 
 def test_test_telegram_failure(env_file, tg, capsys):

@@ -3,16 +3,34 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .timeutil import DATE_RE, log
 
-PACKAGE_DIR = Path(__file__).resolve().parent
+APP = "slot-machine"
+CONFIG_ENV_VAR = "SLOT_MACHINE_CONFIG"
 DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 )
+
+
+def _xdg(var: str, fallback: str) -> Path:
+    value = os.environ.get(var, "")
+    return Path(value) if os.path.isabs(value) else Path.home() / fallback
+
+
+def default_config_path() -> Path:
+    """$SLOT_MACHINE_CONFIG, else ~/.config/slot-machine/slot-machine.env (XDG)."""
+    if os.environ.get(CONFIG_ENV_VAR):
+        return Path(os.environ[CONFIG_ENV_VAR])
+    return _xdg("XDG_CONFIG_HOME", ".config") / APP / f"{APP}.env"
+
+
+def default_state_dir() -> Path:
+    """~/.local/state/slot-machine (XDG); STATE_DIR in the settings overrides it."""
+    return _xdg("XDG_STATE_HOME", ".local/state") / APP
 
 
 @dataclass
@@ -31,7 +49,7 @@ class Config:
     backoff_hours: float = 3
     error_alert_after: int = 3
     user_agent: str = DEFAULT_UA
-    state_dir: Path = PACKAGE_DIR
+    state_dir: Path = field(default_factory=default_state_dir)
     ais_base: str = "https://ais.usvisa-info.com"
     telegram_api: str = "https://api.telegram.org"
 

@@ -6,16 +6,18 @@ from pathlib import Path
 import pytest
 
 from slot_machine import timeutil as clock_module  # everything reads utcnow() from here
-from slot_machine.config import ENV_KEYS, Config
+from slot_machine.config import CONFIG_ENV_VAR, ENV_KEYS, Config
 
 from fakes import BOT_TOKEN, CHAT_ID, FakeAIS, FakeTelegram, Server
 from helpers import T0, make_cfg
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
-    for key in [*ENV_KEYS, "VISA_WATCH_CONFIG"]:
+def clean_env(monkeypatch, tmp_path):
+    """No real settings, state or home directory can leak into a test."""
+    for key in [*ENV_KEYS, CONFIG_ENV_VAR, "XDG_CONFIG_HOME", "XDG_STATE_HOME"]:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
 
 @pytest.fixture(autouse=True)

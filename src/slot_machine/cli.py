@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import os
 import re
 from pathlib import Path
 
-from . import ais, telegram, timeutil
-from .config import PACKAGE_DIR, Config, load_config
+from . import __version__, ais, telegram, timeutil
+from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
 from .messages import session_line
 from .runner import run_check
 from .store import load_json
@@ -85,12 +84,12 @@ def cmd_find_chat_id(cfg: Config) -> int:
 
 
 def cmd_test_telegram(cfg: Config) -> int:
-    ok = telegram.send_message(cfg, "✅ Test message from visa_watch - notifications work.")
+    ok = telegram.send_message(cfg, "✅ Test message from slot-machine - notifications work.")
     print("Sent." if ok else "Failed - check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
     return 0 if ok else 1
 
 
-def cmd_status(cfg: Config) -> int:
+def cmd_status(cfg: Config, config_path: Path) -> int:
     state = load_json(cfg.state_dir / "state.json", {})
     cookies = load_json(cfg.state_dir / "cookies.json", {})
     now = timeutil.utcnow()
@@ -103,18 +102,22 @@ def cmd_status(cfg: Config) -> int:
     print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
     if state.get("consecutive_errors"):
         print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
+    print(f"Settings:   {config_path}{'' if config_path.exists() else ' (missing)'}")
+    print(f"State:      {cfg.state_dir}")
     return 0
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
-        description="Watch the earliest US visa appointment date and report to Telegram."
+        prog="slot-machine",
+        description="Watch the earliest US visa appointment date and report to Telegram.",
     )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument(
         "--config",
         type=Path,
-        default=Path(os.environ.get("VISA_WATCH_CONFIG", PACKAGE_DIR / "visa_watch.env")),
-        help="settings file (default: visa_watch.env next to this script)",
+        default=None,
+        help=f"settings file (default: ${CONFIG_ENV_VAR} or ~/.config/slot-machine/slot-machine.env)",
     )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument(
@@ -135,7 +138,8 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true", help="ignore MIN_INTERVAL_MINUTES and any back-off")
     p.add_argument("--dry-run", action="store_true", help="check, but print messages instead of sending them")
     args = p.parse_args(argv)
-    cfg = load_config(args.config)
+    config_path = args.config or default_config_path()
+    cfg = load_config(config_path)
 
     if args.set_cookie is not None:
         return cmd_set_cookie(cfg, args.set_cookie)
@@ -146,5 +150,5 @@ def main(argv=None) -> int:
     if args.test_telegram:
         return cmd_test_telegram(cfg)
     if args.status:
-        return cmd_status(cfg)
+        return cmd_status(cfg, config_path)
     return run_check(cfg, force=args.force, dry_run=args.dry_run)[0]

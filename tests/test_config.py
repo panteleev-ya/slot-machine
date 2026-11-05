@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from slot_machine.config import load_config, read_env_file
+from slot_machine.config import (
+    ENV_KEYS,
+    Config,
+    default_config_path,
+    default_state_dir,
+    load_config,
+    read_env_file,
+)
 
 
 def write(tmp_path, text, mode=0o600) -> Path:
@@ -81,3 +88,37 @@ def test_warns_when_file_is_readable_by_others(tmp_path, capsys):
 def test_no_warning_for_private_file(tmp_path, capsys):
     assert read_env_file(write(tmp_path, "A=1\n")) == {"A": "1"}
     assert capsys.readouterr().out == ""
+
+
+# --------------------------------------------------------------------------- default locations
+
+
+def test_default_paths_follow_xdg(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "st"))
+    assert default_config_path() == tmp_path / "cfg" / "slot-machine" / "slot-machine.env"
+    assert default_state_dir() == tmp_path / "st" / "slot-machine"
+    assert Config().state_dir == tmp_path / "st" / "slot-machine"
+
+
+def test_default_paths_fall_back_to_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative/is/ignored")  # the XDG spec says so
+    home = tmp_path / "home"
+    assert default_config_path() == home / ".config" / "slot-machine" / "slot-machine.env"
+    assert default_state_dir() == home / ".local" / "state" / "slot-machine"
+
+
+def test_config_env_var_wins(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLOT_MACHINE_CONFIG", str(tmp_path / "x.env"))
+    assert default_config_path() == tmp_path / "x.env"
+
+
+def test_example_settings_file_matches_real_settings(tmp_path):
+    import re
+
+    example = Path(__file__).resolve().parent.parent / "config" / "slot-machine.env.example"
+    keys = set(re.findall(r"^([A-Z_]+)=", example.read_text(), re.M))
+    assert keys <= set(ENV_KEYS), "unknown keys in the example"
+    assert set(ENV_KEYS) - keys == {"AIS_BASE_URL", "TELEGRAM_API_BASE"}, "settings missing from the example"
+    copy = write(tmp_path, example.read_text())
+    assert load_config(copy).schedule_id == ""  # loads cleanly as shipped
