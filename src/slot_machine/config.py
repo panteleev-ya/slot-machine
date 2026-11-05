@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -59,6 +60,8 @@ class Config:
     error_alert_after: int = 3
     cron_schedule: str = DEFAULT_CRON  # read by deploy.sh, not by the app
     check_cooldown_minutes: float = 2  # between Telegram /check commands
+    renew_url: str = ""  # the renewal page as your devices reach it; empty = off
+    renew_token: str = ""  # shared secret of the page and the Chrome extension
     user_agent: str = DEFAULT_UA
     state_dir: Path = field(default_factory=default_state_dir)
     ais_base: str = "https://ais.usvisa-info.com"
@@ -103,6 +106,8 @@ ENV_KEYS = {
     "ERROR_ALERT_AFTER": ("error_alert_after", int),
     "CRON_SCHEDULE": ("cron_schedule", str),
     "TELEGRAM_CHECK_COOLDOWN_MINUTES": ("check_cooldown_minutes", float),
+    "RENEW_URL": ("renew_url", str),
+    "RENEW_TOKEN": ("renew_token", str),
     "USER_AGENT": ("user_agent", str),
     "STATE_DIR": ("state_dir", Path),
     "AIS_BASE_URL": ("ais_base", str),  # for testing against a fake server
@@ -126,6 +131,27 @@ def read_env_file(path: Path) -> dict:
             val = val[1:-1]
         values[key.strip()] = val
     return values
+
+
+def _check_renewal(cfg: Config) -> None:
+    cfg.renew_url = cfg.renew_url.rstrip("/")
+    if not cfg.renew_url:
+        return
+    parts = urllib.parse.urlsplit(cfg.renew_url)
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if parts.scheme != "http" or not parts.hostname or not port or parts.path or parts.query:
+        raise SystemExit(
+            "Config error: RENEW_URL must look like http://yarikos.local:8080 (http, host and port only)"
+        )
+    if port < 1024:
+        raise SystemExit("Config error: RENEW_URL needs a port of 1024 or more (lower ones need root)")
+    if len(cfg.renew_token) < 32 or not re.fullmatch(r"[A-Za-z0-9_-]+", cfg.renew_token):
+        raise SystemExit(
+            "Config error: RENEW_URL is set, so RENEW_TOKEN must be set too: run `make renew-token`"
+        )
 
 
 def load_config(path: Path) -> Config:
@@ -157,6 +183,7 @@ def load_config(path: Path) -> Config:
             raise SystemExit(
                 f"Config error: TELEGRAM_CHAT_ID {chat!r} should be a number (comma-separate several chats)"
             )
+    _check_renewal(cfg)
     cfg.cron_schedule = " ".join(cfg.cron_schedule.split())
     if not CRON_RE.match(cfg.cron_schedule):
         raise SystemExit(

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "slot-machine: renew visa session",
+  "version": "0.1.0",
+  "description": "After you sign in to ais.usvisa-info.com yourself, sends the session to your slot-machine Pi on the home network.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": ["https://ais.usvisa-info.com/*", "http://yarikos.local/*"],
+  "optional_host_permissions": ["http://*/*"],
+  "action": { "default_popup": "popup.html", "default_title": "slot-machine" },
+  "options_ui": { "page": "options.html", "open_in_tab": false }
+}

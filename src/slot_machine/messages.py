@@ -6,6 +6,7 @@ import html
 from datetime import date, datetime, timedelta
 
 from .config import Config
+from .renew_link import renew_link
 from .timeutil import days_between, fmt_clock, fmt_day, fmt_dur, fmt_short, parse_ts, plural
 
 
@@ -16,7 +17,7 @@ def esc(value) -> str:
 def session_line(cfg: Config, state: dict, now: datetime) -> str:
     expired = parse_ts(state.get("session_expired_at"))
     if expired:
-        return f"EXPIRED since {fmt_clock(expired, cfg)} - sign in and run --set-cookie"
+        return f"EXPIRED since {fmt_clock(expired, cfg)} - sign in again to renew it"
     set_at = parse_ts(state.get("session_set_at"))
     line = f"active for {fmt_dur((now - set_at).total_seconds())}" if set_at else "active"
     backoff = parse_ts(state.get("backoff_until"))
@@ -82,11 +83,18 @@ def text_expired(cfg: Config, state: dict) -> str:
     lines = ["<b>🔑 Visa slot watch paused - the AIS session ended</b>"]
     if set_at and ok_at and ok_at >= set_at:
         lines.append(f"That session lasted {fmt_dur((ok_at - set_at).total_seconds())}.")
-    lines += [
-        f"To resume: sign in at {esc(cfg.sign_in_url)}, copy the _yatri_session cookie, then run",
-        "<code>slot-machine --set-cookie</code>",
-        "No requests are sent until then.",
-    ]
+    link = renew_link(cfg, state)
+    if link:
+        lines += [
+            f"To resume: sign in at {esc(cfg.sign_in_url)}, then click the slot-machine extension in Chrome,",
+            f'or paste the cookie on the <a href="{html.escape(link, quote=True)}">renewal page</a> (home Wi-Fi).',
+        ]
+    else:
+        lines += [
+            f"To resume: sign in at {esc(cfg.sign_in_url)}, copy the _yatri_session cookie, then run",
+            "<code>make set-cookie</code>",
+        ]
+    lines.append("No requests are sent until then.")
     return "\n".join(lines)
 
 

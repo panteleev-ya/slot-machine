@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>slot-machine</h1>
+  <p id="status" class="muted">Asking the Pi…</p>
+  <p id="cookie" class="muted"></p>
+  <button id="send">Send session to the Pi</button>
+  <p id="result" aria-live="polite"></p>
+  <p class="small">
+    <a id="signin" href="https://ais.usvisa-info.com/en-kz/niv/users/sign_in" target="_blank" rel="noopener">Sign in to the visa site</a>
+    · <a id="options" href="#">Options</a>
+  </p>
+  <p class="small muted">Don't sign out of the visa site after sending: that ends the session on the Pi too.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

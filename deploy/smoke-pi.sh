@@ -17,7 +17,7 @@ ssh_pi bash -s -- "$tmp" <<'EOF'
 set -euo pipefail
 tmp=$1
 app=~/.local/bin/slot-machine
-cleanup() { kill "$fakes_pid" 2>/dev/null || true; rm -rf "$tmp"; }
+cleanup() { kill "$fakes_pid" ${serve_pid:-} 2>/dev/null || true; rm -rf "$tmp"; }
 python3 "$tmp/fakes.py" --port-file "$tmp/ports.json" & fakes_pid=$!
 trap cleanup EXIT
 for _ in $(seq 50); do [[ -s "$tmp/ports.json" ]] && break; sleep 0.1; done
@@ -26,6 +26,8 @@ import json; p = json.load(open('$tmp/ports.json'))
 for k, v in p.items(): print(f'{k}={v!r}')
 ")"
 
+renew_port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+renew_token=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
 (umask 077; cat > "$tmp/test.env" <<ENV
 AIS_SCHEDULE_ID=1234
 AIS_FACILITY_ID=134
@@ -35,6 +37,8 @@ TIMEZONE=UTC
 STATE_DIR=$tmp/state
 AIS_BASE_URL=$ais
 TELEGRAM_API_BASE=$telegram
+RENEW_URL=http://127.0.0.1:$renew_port
+RENEW_TOKEN=$renew_token
 ENV
 )
 sm() { "$app" --config "$tmp/test.env" "$@"; }
@@ -62,6 +66,20 @@ echo "ok   expired session: alert sent, requests stop"
 [[ $(stat -c %a "$tmp/state/cookies.json") == 600 && $(stat -c %a "$tmp/state/state.json") == 600 ]] \
     || fail "state files are not private"
 echo "ok   state files are chmod 600"
+
+# the renewal page: what the Chrome extension does after you sign in again
+"$app" --config "$tmp/test.env" --serve & serve_pid=$!
+for _ in $(seq 50); do curl -fsS -o /dev/null "http://127.0.0.1:$renew_port/" 2>/dev/null && break; sleep 0.1; done
+control "$ais" "{\"add_session\": \"$session\"}"
+reply=$(curl -sS -X POST -H "Authorization: Bearer $renew_token" -H 'Content-Type: application/json' \
+    -d "{\"cookie\": \"$session\"}" "http://127.0.0.1:$renew_port/api/cookie")
+grep -q '"ok": true' <<<"$reply" || fail "renewal page said: $reply"
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "http://127.0.0.1:$renew_port/api/status")
+[[ $code == 401 ]] || fail "renewal page accepted a wrong token ($code)"
+grep -q '"expired": false' <<<"$(curl -sS -H "Authorization: Bearer $renew_token" "http://127.0.0.1:$renew_port/api/status")" \
+    || fail "session not active after renewal"
+kill "$serve_pid"; wait "$serve_pid" 2>/dev/null || true
+echo "ok   renewal page: new session accepted, wrong token refused"
 
 sm --status | sed 's/^/  /'
 messages

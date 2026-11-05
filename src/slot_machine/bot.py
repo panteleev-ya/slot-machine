@@ -9,13 +9,15 @@ since the poller consumes the bot's messages.
 
 from __future__ import annotations
 
+import html
 import time
 from datetime import date, timedelta
 
 from . import telegram, timeutil
 from .ais import FetchResult
 from .config import Config
-from .messages import esc
+from .messages import esc, session_line
+from .renew_link import renew_link
 from .runner import run_check
 from .store import BOT_FILE, load_json, save_json, single_instance  # BOT_FILE: offset, last /check,
 
@@ -33,6 +35,7 @@ HELP = (
     "/set_alert_before YYYY-MM-DD - alert me only about dates before this one\n"
     "/set_alert_before off - alert me about every sooner date\n"
     "/set_alert_before - show my setting\n"
+    "/renew - (owner) link to renew the visa-site session\n"
     "Alerts about sooner dates and the daily summary arrive on their own."
 )
 
@@ -86,6 +89,8 @@ def handle(cfg: Config, bot: dict, update: dict) -> None:
         reply = check(cfg, bot, chat_id)
     elif command == "/set_alert_before":
         reply = set_alert_before(cfg, bot, chat_id, args)
+    elif command == "/renew":
+        reply = renew_reply(cfg, chat_id)
     else:
         reply = HELP  # /start, /help, anything unknown
     telegram.send_message(cfg, reply, chat_id=chat_id)
@@ -159,3 +164,19 @@ def set_alert_before(cfg: Config, bot: dict, chat_id: str, args: list[str]) -> s
         relation = "already before" if earliest < value else "after"
         reply += f"\nThe earliest date at the last check, {fmt_short(earliest)}, is {relation} that."
     return reply + "\nThe daily summary still comes."
+
+
+def renew_reply(cfg: Config, chat_id: str) -> str:
+    """The current renewal link, for the owner (it's their visa account)."""
+    if chat_id != cfg.owner_chat:
+        return "Only the owner can renew the visa-site session."
+    if not cfg.renew_url:
+        return "The renewal page isn't set up. Run `make renew-token` on the Mac."
+    state = load_json(cfg.state_dir / "state.json", {})
+    link = renew_link(cfg, state)
+    if not link:
+        return f"The session is {session_line(cfg, state, timeutil.utcnow())}. Nothing to renew."
+    return (
+        f"Sign in at {esc(cfg.sign_in_url)}, then click the slot-machine extension in Chrome, or use the "
+        f'<a href="{html.escape(link, quote=True)}">renewal page</a> (home Wi-Fi).'
+    )

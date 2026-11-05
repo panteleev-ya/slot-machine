@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="options">
+  <h1>slot-machine options</h1>
+  <label for="piUrl">The Pi's renewal page (RENEW_URL)</label>
+  <input id="piUrl" type="url" placeholder="http://yarikos.local:8080" autocomplete="off">
+  <label for="token">Token (RENEW_TOKEN; <code>make renew-token</code> copies it)</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <button id="save">Save</button>
+  <p id="saved" aria-live="polite"></p>
+  <script src="options.js"></script>
+</body>
+</html>

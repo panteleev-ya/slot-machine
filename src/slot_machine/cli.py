@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import re
+import socket
+import urllib.parse
 from pathlib import Path
 
-from . import __version__, ais, bot, telegram, timeutil
+from . import __version__, ais, bot, renew, telegram, timeutil
 from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
 from .messages import session_line
 from .runner import run_check
@@ -124,9 +126,20 @@ def cmd_status(cfg: Config, config_path: Path) -> int:
     print(f"Chats:      {chats}" + (f"; welcome on the next check: {', '.join(pending)}" if pending else ""))
     if state.get("consecutive_errors"):
         print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
+    if cfg.renew_url:
+        print(f"Renew page: {cfg.renew_url} ({'listening' if _listening(cfg) else 'not running'})")
     print(f"Settings:   {config_path}{'' if config_path.exists() else ' (missing)'}")
     print(f"State:      {cfg.state_dir}")
     return 0
+
+
+def _listening(cfg: Config) -> bool:
+    port = urllib.parse.urlsplit(cfg.renew_url).port
+    try:
+        with socket.create_connection(("localhost", port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 def main(argv=None) -> int:
@@ -158,6 +171,9 @@ def main(argv=None) -> int:
     mode.add_argument("--test-telegram", action="store_true", help="send a test message")
     mode.add_argument("--status", action="store_true", help="print the current state")
     mode.add_argument(
+        "--serve", action="store_true", help="run the renewal page (RENEW_URL) until killed; cron starts it"
+    )
+    mode.add_argument(
         "--poll-telegram",
         nargs="?",
         const=55.0,
@@ -186,4 +202,6 @@ def main(argv=None) -> int:
         return cmd_status(cfg, config_path)
     if args.poll_telegram is not None:
         return bot.poll(cfg, args.poll_telegram)
+    if args.serve:
+        return renew.serve(cfg)
     return run_check(cfg, force=args.force, dry_run=args.dry_run, via=args.via)[0]

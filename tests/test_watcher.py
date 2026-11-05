@@ -117,7 +117,7 @@ def test_expired_session_alerts_with_how_long_it_lasted():
     msgs = process(state, FetchResult("expired", detail="HTTP 302"), T0 + timedelta(hours=6), cfg)
     assert kinds(msgs) == ["expired"]
     assert "That session lasted 5h 0m." in msgs[0].text
-    assert "--set-cookie" in msgs[0].text
+    assert "make set-cookie" in msgs[0].text  # no renewal page configured
     assert state["session_expired_at"] == (T0 + timedelta(hours=6)).isoformat()
 
 

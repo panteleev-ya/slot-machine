@@ -35,6 +35,7 @@ One Python file with no dependencies (a zipapp of `src/slot_machine`), run hourl
 | State, session cookie, log | `~/.local/state/slot-machine/` (chmod 600) |
 | Schedule | crontab, `CRON_SCHEDULE` in the settings (default `17 * * * *`, hourly at :17); `make cron-on` / `make cron-off` switch it |
 | Telegram commands | crontab, every minute: `slot-machine --poll-telegram` waits about a minute for commands, answers, exits |
+| Renewal page | crontab, every minute: `slot-machine --serve` starts the page unless it's running (`RENEW_URL`, off when empty) |
 | Log | `~/.local/state/slot-machine/watch.log`, one line per check, tagged with what started it (`[cron]`, `[check-now]`, `[telegram:<chat>]`, `[set-cookie]`); `make logs` |
 
 The site's sign-in form has a captcha, so the app can't log in. You sign in in your
@@ -66,6 +67,19 @@ your copy: refreshing keeps only values.
 4. **Start the schedule.** `make cron-on`. To change when it runs later: `make edit-config`, set
    `CRON_SCHEDULE` (five crontab fields, Pi time zone), `make push-config`. A running schedule updates at once.
 
+**Renewing the session.** Sessions last about an hour from sign-in, whatever the Pi does. To make
+renewing quick, the Pi runs a small page on the home network and there's a Chrome extension:
+
+1. `make renew-token` once. It turns the page on (`RENEW_URL`, `RENEW_TOKEN`), pushes the settings,
+   and copies the token to the clipboard.
+2. Install the extension from `extension/` (see [extension/README.md](extension/README.md)) and paste
+   the token in its options.
+3. When "session ended" arrives: sign in to the visa site in Chrome, click the extension. Done.
+
+The alert also links to the page (valid only until that session is renewed), where you can paste a
+cookie by hand; `/renew` in Telegram sends the current link to the owner. The page is plain http and
+for the home network only: never forward its port. It only accepts a session, never shows one.
+
 Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it
 skips the interval and any throttle pause, so use it sparingly). After a "session ended" alert: sign in
 again, `make set-cookie`.
@@ -87,12 +101,16 @@ src/slot_machine/
   watcher.py    the decision logic - pure, no I/O
   messages.py   message text
   ais.py        the visa-site client
+  bot.py        Telegram commands (/check, /set_alert_before, /renew)
+  renew.py      the renewal page (HTTP server); renew_link.py the alert's one-session link
   telegram.py   Bot API
   config.py     settings file + environment, XDG paths
   store.py      private atomic JSON files, single-run lock
   timeutil.py   clock and formatting
 tests/          fakes.py (fake site + bot API), one test file per module, test_zipapp.py
-deploy/         build.py (zipapp), deploy.sh, smoke-pi.sh, sync_config.py (template -> your copy)
+deploy/         build.py (zipapp), deploy.sh, smoke-pi.sh, sync_config.py (template -> your copy),
+                renew_token.py (make renew-token)
+extension/      the Chrome extension that sends a fresh session to the renewal page
 config/         slot-machine.env.example (committed), slot-machine.env (yours, git-ignored)
 ```
 

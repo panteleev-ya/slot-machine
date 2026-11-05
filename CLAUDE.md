@@ -40,6 +40,14 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 - Per-chat cutoffs: `/set_alert_before` stores `telegram.json["alert_before"][chat]` ("" = off; missing =
   ALERT_ONLY_BEFORE). The runner reads that file and passes it to `process()`, which sends a "sooner"
   alert only to chats whose cutoff the date beats. Only the poller writes `telegram.json`.
+- Renewal page: `renew.py`, `slot-machine --serve`, started by cron every minute (exits if its
+  lock `.renew.lock` is held, so cron is the watchdog). Single-threaded stdlib HTTPServer, dual-stack.
+  Write-only: `/api/cookie` (Bearer RENEW_TOKEN, used by `extension/`) and `/renew` (form, link token
+  from `renew_link.py` = HMAC(RENEW_TOKEN, session_expired_at), dead once the session is renewed).
+  Never log request lines (tokens in the query) and never return a cookie. `deploy.sh` kills the
+  server on deploy/push-config (pattern `slot-machin[e] --serve` so pkill can't match its own shell).
+- `extension/`: MV3, no build. Only `cookies` + `storage`, hosts ais.usvisa-info.com and yarikos.local;
+  network text only via textContent. Loaded unpacked by the user.
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow

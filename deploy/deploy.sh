@@ -15,6 +15,7 @@ APP="$ROOT/dist/slot-machine"
 LOCAL_CONFIG=${LOCAL_CONFIG:-$ROOT/config/slot-machine.env}
 MARK="# slot-machine (managed by deploy.sh)"
 BOT_MARK="# slot-machine telegram (managed by deploy.sh)"  # the /check poller
+SERVE_MARK="# slot-machine renew (managed by deploy.sh)"  # the renewal page; exits if already running
 
 ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
 
@@ -26,6 +27,7 @@ deploy() {
     ssh_pi 'cat > ~/.local/bin/slot-machine.new && chmod 755 ~/.local/bin/slot-machine.new &&
             mv -f ~/.local/bin/slot-machine.new ~/.local/bin/slot-machine' < "$APP"
     echo "app:      ~/.local/bin/slot-machine ($(ssh_pi '~/.local/bin/slot-machine --version'))"
+    restart_page
     if [[ -f "$LOCAL_CONFIG" ]]; then
         push_config
     elif ssh_pi 'test -e ~/.config/slot-machine/slot-machine.env'; then
@@ -50,9 +52,13 @@ push_config() {
     ssh_pi 'mkdir -p -m 700 ~/.config/slot-machine && cd ~/.config/slot-machine &&
             (umask 077 && cat > slot-machine.env.new) && mv -f slot-machine.env.new slot-machine.env' < "$LOCAL_CONFIG"
     echo "settings: ~/.config/slot-machine/slot-machine.env (uploaded from config/slot-machine.env)"
+    restart_page
     # a changed CRON_SCHEDULE takes effect right away, but only if cron is already on
     if cron_is_on; then cron_on; fi
 }
+
+# The renewal page runs until killed; stop it so cron restarts it with the new code/settings.
+restart_page() { ssh_pi "pkill -u \$(id -u) -f 'slot-machin[e] --serve' || true"; }
 
 cron_is_on() { ssh_pi "crontab -l 2>/dev/null | grep -qF '$MARK'"; }
 
@@ -68,17 +74,20 @@ app=\$HOME/.local/bin/slot-machine
 log=\$HOME/.local/state/slot-machine/watch.log
 check="$schedule \$app --via cron >> \$log 2>&1 $MARK"
 poll="* * * * * \$app --poll-telegram >> \$log 2>&1 $BOT_MARK"
-(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' || true; echo "\$check"; echo "\$poll") | crontab -
-echo "cron:     on (checks on CRON_SCHEDULE, Telegram commands every minute)"
-crontab -l | grep -F -e '$MARK' -e '$BOT_MARK'
+serve="* * * * * \$app --serve >> \$log 2>&1 $SERVE_MARK"
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' || true
+ echo "\$check"; echo "\$poll"; echo "\$serve") | crontab -
+echo "cron:     on (checks on CRON_SCHEDULE; Telegram commands and the renewal page every minute)"
+crontab -l | grep -F -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK'
 EOF
 }
 
 cron_off() {
     ssh_pi bash -s <<EOF
 set -e
-(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' || true) | crontab -
-echo "cron:     off (checks and Telegram commands)"
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' || true) | crontab -
+pkill -u \$(id -u) -f 'slot-machin[e] --serve' || true
+echo "cron:     off (checks, Telegram commands, renewal page)"
 EOF
 }
 

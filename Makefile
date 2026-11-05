@@ -9,7 +9,7 @@ REMOTE  := .local/bin/slot-machine
 LOG     := .local/state/slot-machine/watch.log
 
 .PHONY: help dev test lint fmt build clean deploy cron-on cron-off smoke-pi status logs \
-        config edit-config push-config find-chat-id test-telegram set-cookie discover check-now
+        config edit-config push-config find-chat-id test-telegram set-cookie discover check-now renew-token
 
 help:
 	@echo "On the Mac:"
@@ -28,6 +28,7 @@ help:
 	@echo "  make discover       list your schedule and location ids"
 	@echo "  make cron-on        checks on CRON_SCHEDULE   (make cron-off: off)"
 	@echo "  make check-now      one real check right now (ignores the interval and any pause)"
+	@echo "  make renew-token    set up the renewal page's secret (copied for the Chrome extension)"
 	@echo "  make status         / make logs"
 
 $(VENV)/bin/pytest: requirements-dev.txt
@@ -98,3 +99,9 @@ discover:
 # the run lock still keeps it from overlapping a cron run. Output also goes to the log.
 check-now:
 	@$(SSH) $(PI) 'set -o pipefail; $(REMOTE) --force --via check-now 2>&1 | tee -a $(LOG)'
+
+# Renewal page secret: new RENEW_TOKEN (and RENEW_URL if empty) in your local settings, copied to the
+# clipboard for the Chrome extension, then pushed to the Pi. Rotating it needs the extension updated.
+renew-token: config
+	@$(PYTHON) deploy/renew_token.py
+	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
