@@ -29,6 +29,30 @@ Signed in normally, then Reschedule Appointment → Astana, with DevTools open.
     `x-yatri-language: en`, `x-yatri-roles: self_service`, `session-id`, `x-request-id` and `etag`.
     Never log response headers. The code currently logs none.
 
+## The browser's request (Copy as cURL, 2026-11-05)
+
+Header names Chrome sends on the days request (values omitted; several are secrets):
+
+- `Accept: application/json, text/javascript, */*; q=0.01` and `X-Requested-With: XMLHttpRequest`,
+  the same as `ais.ais_headers()`.
+- `Referer`: the appointment page URL **with a query string** listing the applicant IDs plus
+  `confirmed_limit_message=1&commit=Continue`. The code sends the bare appointment URL.
+- **`X-CSRF-Token`**: Rails' per-page token from the appointment page's `<meta name="csrf-token">`.
+  The code doesn't send it. Rails normally checks it only on POST, so a GET probably works without
+  it. Unconfirmed (experiment 3).
+- Cookies: `_yatri_session` plus Google Analytics cookies (`_ga`, `_gid`, `_ga_*`), which the
+  server shouldn't need.
+- `User-Agent` (Chrome 152 on macOS), `Accept-Language`, `Sec-Fetch-Dest/Mode/Site`,
+  `sec-ch-ua*` client hints.
+- `If-None-Match` with the ETag of the browser's last copy.
+
+**Replaying it with curl from the Mac returned `304 Not Modified` with no body.** The copied
+`If-None-Match` made it a conditional request, and the dates hadn't changed since the browser's
+copy. So the server accepted the session and the request outside the browser; only the body was
+skipped. Rerun without `If-None-Match` to get `200` and the JSON. The code never sends
+`If-None-Match`, so it won't see 304 as long as it doesn't. Using ETags would save bandwidth, not
+requests: a 304 still counts against the throttle.
+
 ## From community scripts (2022-2025, not verified here)
 
 - **Times:** `.../appointment/times/<FACILITY>.json?date=YYYY-MM-DD&appointments[expedite]=false` returns
@@ -46,12 +70,13 @@ Sources: [Svision gist](https://gist.github.com/Svision/04202d93fb32d14f00ac7468
 
 ## Still open (the user's experiments)
 
-1. **Request headers the browser sends** on the days request (names only, no Cookie value):
-   does it include `X-Requested-With: XMLHttpRequest`, `Accept: application/json, ...`, `Referer`?
-   Also the `id` of the location `<select>` (`cli.cmd_discover` looks for one containing `facility_id`).
-2. **Plain curl from the Mac:** does the copied cURL return the same 200 + JSON outside the browser?
-3. **Which parts are needed:** status without `X-Requested-With`, with only `_yatri_session` as the
-   cookie, and without `User-Agent`.
+1. ~~Request headers~~: answered above. Still open: the `id` of the location `<select>`
+   (`cli.cmd_discover` looks for one containing `facility_id`).
+2. **Plain curl from the Mac:** answered in part. It got `304`, so the session works outside the
+   browser. Still to see: `200` plus the JSON body without `If-None-Match`.
+3. **Which parts are needed:** status without `X-CSRF-Token`, without `X-Requested-With`, with only
+   `_yatri_session` as the cookie, without `Sec-*`/`sec-ch-ua*`, with the bare Referer, and without
+   `User-Agent`.
 4. **From the Pi:** does the same request work from `yarikos`, the machine that runs the checks?
 5. **Session lifetime:** does the cookie still work after about 1 h and about 3 h without using the site?
 
