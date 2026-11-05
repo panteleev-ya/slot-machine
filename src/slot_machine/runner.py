@@ -7,7 +7,7 @@ from datetime import timedelta
 from . import telegram, timeutil
 from .ais import FetchResult, fetch_dates
 from .config import Config
-from .store import load_json, save_json, single_instance
+from .store import BOT_FILE, load_json, save_json, single_instance
 from .timeutil import fmt_clock, fmt_dur, iso, log, parse_ts
 from .watcher import WELCOMES, process, unmark_welcomed
 
@@ -62,7 +62,8 @@ def run_check(
 
         if res.cookies is not None and res.cookies != cookies:
             save_json(cookie_path, res.cookies)
-        for m in process(state, res, now, cfg):
+        alert_before = load_json(cfg.state_dir / BOT_FILE, {}).get("alert_before", {})
+        for m in process(state, res, now, cfg, alert_before):
             targets = cfg.chat_ids if m.to is None else m.to
             if dry_run:
                 to = ", ".join(targets) or "nobody"

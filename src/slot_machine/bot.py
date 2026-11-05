@@ -10,17 +10,19 @@ since the poller consumes the bot's messages.
 from __future__ import annotations
 
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 
 from . import telegram, timeutil
 from .ais import FetchResult
 from .config import Config
 from .messages import esc
 from .runner import run_check
-from .store import load_json, save_json, single_instance
-from .timeutil import fmt_day, fmt_dur, iso, local, log, parse_ts
+from .store import BOT_FILE, load_json, save_json, single_instance  # BOT_FILE: offset, last /check,
 
-BOT_FILE = "telegram.json"  # offset, last /check time, chats seen outside the list
+# chats seen outside the list, and each chat's own alert cutoff (alert_before)
+from .timeutil import DATE_RE, fmt_day, fmt_dur, fmt_short, iso, local, log, parse_ts
+from .watcher import alert_cutoff, current_earliest
+
 LOCK_NAME = ".telegram.lock"  # one poller at a time; separate from the check lock
 LONG_POLL = 50  # seconds per getUpdates request
 STALE_AFTER = timedelta(minutes=10)  # older commands (queued while offline) are ignored
@@ -28,6 +30,9 @@ STALE_AFTER = timedelta(minutes=10)  # older commands (queued while offline) are
 HELP = (
     "<b>Visa slot watch</b>\n"
     "/check - check the earliest date right now\n"
+    "/set_alert_before YYYY-MM-DD - alert me only about dates before this one\n"
+    "/set_alert_before off - alert me about every sooner date\n"
+    "/set_alert_before - show my setting\n"
     "Alerts about sooner dates and the daily summary arrive on their own."
 )
 
@@ -75,8 +80,14 @@ def handle(cfg: Config, bot: dict, update: dict) -> None:
     if sent_at and timeutil.utcnow().timestamp() - sent_at > STALE_AFTER.total_seconds():
         log(f"telegram: {text.split()[0]} from {chat_id} is too old to act on; ignored")
         return
-    command = text.split()[0].split("@")[0].lower()  # "/check@SomeBot arg" -> "/check"
-    reply = check(cfg, bot, chat_id) if command == "/check" else HELP  # /start, /help, unknown
+    command, *args = text.split()
+    command = command.split("@")[0].lower()  # "/check@SomeBot" -> "/check"
+    if command == "/check":
+        reply = check(cfg, bot, chat_id)
+    elif command == "/set_alert_before":
+        reply = set_alert_before(cfg, bot, chat_id, args)
+    else:
+        reply = HELP  # /start, /help, anything unknown
     telegram.send_message(cfg, reply, chat_id=chat_id)
 
 
@@ -111,3 +122,40 @@ def check_reply(cfg: Config, res: FetchResult | None, now) -> str:
     if res.kind == "skipped":
         return f"Nothing was checked: {esc(res.detail)}."
     return f"⚠️ The check failed: {esc(res.detail)}"
+
+
+def set_alert_before(cfg: Config, bot: dict, chat_id: str, args: list[str]) -> str:
+    """This chat's own cutoff for sooner-date alerts. Stored per chat, so nobody changes
+    what someone else gets; the daily summary is not affected."""
+    own = bot.setdefault("alert_before", {})
+    today = local(timeutil.utcnow(), cfg).date()
+    if not args:
+        current = alert_cutoff(cfg, own, chat_id)
+        where = "" if chat_id in own else " (the default from the settings)"
+        now = (
+            f"You get alerts only for dates before {fmt_day(current, today)}{where}."
+            if current
+            else f"You get an alert for every sooner date{where}."
+        )
+        return f"{now}\nChange it: /set_alert_before YYYY-MM-DD, or /set_alert_before off"
+    value = args[0].lower()
+    if value in ("off", "none", "clear", "all"):
+        own[chat_id] = ""
+        log(f"telegram: {chat_id} set alert-before off")
+        return "OK. You'll get an alert for every sooner date."
+    try:
+        if not DATE_RE.match(value):
+            raise ValueError
+        cutoff = date.fromisoformat(value)
+    except ValueError:
+        return f"That's not a date I can use: {esc(args[0])}. Use YYYY-MM-DD, like 2027-06-30."
+    if cutoff <= today:
+        return f"{fmt_short(value)} has already passed. Pick a future date, or /set_alert_before off."
+    own[chat_id] = value
+    log(f"telegram: {chat_id} set alert-before {value}")
+    reply = f"OK. You'll get sooner-date alerts only for dates before {fmt_day(value, today)}."
+    earliest = current_earliest(load_json(cfg.state_dir / "state.json", {}))
+    if earliest:
+        relation = "already before" if earliest < value else "after"
+        reply += f"\nThe earliest date at the last check, {fmt_short(earliest)}, is {relation} that."
+    return reply + "\nThe daily summary still comes."

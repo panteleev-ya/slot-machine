@@ -16,6 +16,10 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
 - **`/check` in Telegram** (in a listed chat) runs a check right away and answers with the earliest
   date, like `make check-now`; at most once every `TELEGRAM_CHECK_COOLDOWN_MINUTES` (2). Other chats get
   no answer. Commands older than 10 minutes, such as ones sent while the Pi was offline, are ignored.
+- **`/set_alert_before YYYY-MM-DD`** in Telegram: sooner-date alerts *in that chat* only for dates before
+  that day. `/set_alert_before off` for every sooner date again, `/set_alert_before` alone shows the
+  setting. Each chat has its own, so nobody changes what someone else gets; `ALERT_ONLY_BEFORE` in the
+  settings is the default for chats that haven't set one. The daily summary isn't affected.
 
 It only reads. It never books, cancels or reschedules.
 

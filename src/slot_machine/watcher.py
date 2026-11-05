@@ -73,8 +73,19 @@ def current_earliest(state: dict) -> str | None:
     return state["last_seen"]
 
 
-def process(state: dict, res: FetchResult, now: datetime, cfg: Config) -> list[Msg]:
-    """Fold one check result into `state` and return the messages to send."""
+def alert_cutoff(cfg: Config, overrides: dict, chat: str) -> str:
+    """The date a chat's sooner-date alerts must beat ("" = any sooner date): its own
+    /set_alert_before value if it set one, else ALERT_ONLY_BEFORE from the settings."""
+    own = overrides.get(chat)
+    return cfg.alert_only_before if own is None else own
+
+
+def process(
+    state: dict, res: FetchResult, now: datetime, cfg: Config, alert_before: dict | None = None
+) -> list[Msg]:
+    """Fold one check result into `state` and return the messages to send.
+    `alert_before` maps chat id -> its own cutoff ("" = none), set with /set_alert_before."""
+    alert_before = alert_before or {}
     msgs = []
     today = local(now, cfg).date()
     counts = state.setdefault("counts", {"ok": 0, "empty": 0, "failed": 0})
@@ -103,14 +114,14 @@ def process(state: dict, res: FetchResult, now: datetime, cfg: Config) -> list[M
                 baseline_sent=True, last_digest_date=today.isoformat(), last_digest_earliest=earliest
             )
             state["welcomed_chats"] = list(cfg.chat_ids)  # the baseline is everyone's welcome
-        elif (prev is None or earliest < prev) and (
-            not cfg.alert_only_before or earliest < cfg.alert_only_before
-        ):
+        elif prev is None or earliest < prev:
             # "Sooner" means sooner than at the previous good check, so a slot that
             # vanishes and comes back alerts again - each reappearance is a new chance.
-            msgs.append(
-                Msg("sooner", messages.text_sooner(cfg, earliest, prev, today), rollback={"last_seen": prev})
-            )
+            # Each chat hears about it only if it also beats that chat's cutoff.
+            to = [c for c in cfg.chat_ids if earliest < (alert_cutoff(cfg, alert_before, c) or "9999-12-31")]
+            if to:
+                text = messages.text_sooner(cfg, earliest, prev, today)
+                msgs.append(Msg("sooner", text, rollback={"last_seen": prev}, to=to))
         best = state.get("best_since_digest")
         if not best or earliest < best["date"]:
             state["best_since_digest"] = {"date": earliest, "at": iso(now)}

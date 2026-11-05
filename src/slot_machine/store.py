@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 LOCK_NAME = ".slot-machine.lock"
+BOT_FILE = "telegram.json"  # written by the Telegram poller only; others just read it
 
 
 def load_json(path: Path, default):

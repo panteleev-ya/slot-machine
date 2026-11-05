@@ -37,6 +37,9 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   exits; own lock `.telegram.lock`, own file `telegram.json` with the offset, last /check time and
   chats seen outside the list). The offset is saved before a command runs, so a crash never
   repeats it. `/check` calls `run_check(force=True, via="telegram:<chat>")`, with a cooldown.
+- Per-chat cutoffs: `/set_alert_before` stores `telegram.json["alert_before"][chat]` ("" = off; missing =
+  ALERT_ONLY_BEFORE). The runner reads that file and passes it to `process()`, which sends a "sooner"
+  alert only to chats whose cutoff the date beats. Only the poller writes `telegram.json`.
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow

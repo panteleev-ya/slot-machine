@@ -13,7 +13,7 @@ from .messages import session_line
 from .runner import run_check
 from .store import load_json
 from .timeutil import fmt_clock, fmt_day, local, parse_ts
-from .watcher import current_earliest, pending_welcomes
+from .watcher import alert_cutoff, current_earliest, pending_welcomes
 
 
 def cmd_set_cookie(cfg: Config, value: str) -> int:
@@ -114,7 +114,13 @@ def cmd_status(cfg: Config, config_path: Path) -> int:
     cookie = "cookie saved" if cookies.get("_yatri_session") else "no cookie"
     print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
     pending = pending_welcomes(state, cfg)
-    chats = ", ".join(f"{c}{' (owner)' if i == 0 else ''}" for i, c in enumerate(cfg.chat_ids)) or "none"
+    own = load_json(cfg.state_dir / bot.BOT_FILE, {}).get("alert_before", {})
+
+    def describe(i: int, c: str) -> str:
+        cutoff = alert_cutoff(cfg, own, c)
+        return f"{c}{' (owner)' if i == 0 else ''}{f' [before {cutoff}]' if cutoff else ''}"
+
+    chats = ", ".join(describe(i, c) for i, c in enumerate(cfg.chat_ids)) or "none"
     print(f"Chats:      {chats}" + (f"; welcome on the next check: {', '.join(pending)}" if pending else ""))
     if state.get("consecutive_errors"):
         print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
