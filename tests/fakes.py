@@ -131,6 +131,20 @@ class FakeTelegram:
         self.fail_next = 0
         self.fail_status = 500
         self.fail_chats: set[str] = set()  # these chat ids always get 400 'chat not found'
+        self.updates: list[dict] = []  # incoming messages, like Telegram's queue
+        self.updates_status = 200  # e.g. 409 while "another poller" holds getUpdates
+        self.say(chat_id, "hi", "yarik")  # the owner said hi once, as in the real setup
+
+    def say(self, chat_id, text: str, username: str = "someone", date: int | None = None) -> int:
+        """Queue a message from a chat to the bot; returns its update_id. `date` is unix
+        seconds; without it the message counts as "just now"."""
+        update_id = (self.updates[-1]["update_id"] + 1) if self.updates else 1
+        chat = {"id": int(chat_id), "type": "private", "first_name": username.title(), "username": username}
+        message = {"message_id": update_id, "text": text, "chat": chat}
+        if date is not None:
+            message["date"] = date
+        self.updates.append({"update_id": update_id, "message": message})
+        return update_id
 
     def handle(self, h: BaseHTTPRequestHandler) -> None:
         path = urllib.parse.urlsplit(h.path).path
@@ -147,22 +161,15 @@ class FakeTelegram:
             )
         method = path.rsplit("/", 1)[-1]
         if method == "getUpdates":
-            updates = [
-                {
-                    "update_id": 1,
-                    "message": {
-                        "message_id": 1,
-                        "text": "hi",
-                        "chat": {
-                            "id": self.chat_id,
-                            "type": "private",
-                            "first_name": "Yarik",
-                            "username": "yarik",
-                        },
-                    },
-                }
-            ]
-            return send(h, 200, json.dumps({"ok": True, "result": updates}).encode(), "application/json")
+            if self.updates_status != 200:
+                return send(
+                    h, self.updates_status, b'{"ok": false, "description": "Conflict"}', "application/json"
+                )
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
+            offset = int(query.get("offset", ["0"])[0])
+            if offset:  # like Telegram: an offset confirms (drops) everything before it
+                self.updates = [u for u in self.updates if u["update_id"] >= offset]
+            return send(h, 200, json.dumps({"ok": True, "result": self.updates}).encode(), "application/json")
         if method == "sendMessage" and h.command == "POST":
             form = urllib.parse.parse_qs(h.rfile.read(int(h.headers.get("Content-Length", 0))).decode())
             msg = {k: v[0] for k, v in form.items()}

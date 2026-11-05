@@ -33,6 +33,12 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   or welcome; state without it is treated as "only the first chat was greeted". A message is rolled
   back only if it reached nobody; a missed baseline/welcome is retried for that chat alone.
 
+- Telegram commands: `bot.py`, run by cron every minute as `--poll-telegram` (long-polls ~55 s, then
+  exits; own lock `.telegram.lock`, own file `telegram.json` with the offset, last /check time and
+  chats seen outside the list). The offset is saved before a command runs, so a crash never
+  repeats it. `/check` calls `run_check(force=True, via="telegram:<chat>")`, with a cooldown.
+- Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
+
 ## Workflow
 - `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.
 - `make deploy` then `make smoke-pi` after any change that should reach the Pi.

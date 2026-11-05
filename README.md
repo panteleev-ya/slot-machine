@@ -13,6 +13,9 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
   "checks failing". Nobody can subscribe themselves. To add someone: they message the bot (`/start`),
   `make find-chat-id` shows their id, add it to `TELEGRAM_CHAT_ID`, `make push-config`. The next check
   sends them a welcome with the current earliest date.
+- **`/check` in Telegram** (in a listed chat) runs a check right away and answers with the earliest
+  date, like `make check-now`; at most once every `TELEGRAM_CHECK_COOLDOWN_MINUTES` (2). Other chats get
+  no answer. Commands older than 10 minutes, such as ones sent while the Pi was offline, are ignored.
 
 It only reads. It never books, cancels or reschedules.
 
@@ -27,6 +30,8 @@ One Python file with no dependencies (a zipapp of `src/slot_machine`), run hourl
 | Settings | `~/.config/slot-machine/slot-machine.env` (chmod 600) |
 | State, session cookie, log | `~/.local/state/slot-machine/` (chmod 600) |
 | Schedule | crontab, `CRON_SCHEDULE` in the settings (default `17 * * * *`, hourly at :17); `make cron-on` / `make cron-off` switch it |
+| Telegram commands | crontab, every minute: `slot-machine --poll-telegram` waits about a minute for commands, answers, exits |
+| Log | `~/.local/state/slot-machine/watch.log`, one line per check, tagged with what started it (`[cron]`, `[check-now]`, `[telegram:<chat>]`, `[set-cookie]`); `make logs` |
 
 The site's sign-in form has a captcha, so the app can't log in. You sign in in your
 browser and hand it the `_yatri_session` cookie; it uses that session until the site ends it.

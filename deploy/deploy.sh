@@ -14,6 +14,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP="$ROOT/dist/slot-machine"
 LOCAL_CONFIG=${LOCAL_CONFIG:-$ROOT/config/slot-machine.env}
 MARK="# slot-machine (managed by deploy.sh)"
+BOT_MARK="# slot-machine telegram (managed by deploy.sh)"  # the /check poller
 
 ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
 
@@ -63,18 +64,21 @@ cron_on() {
         || { echo "Cron not changed: fix CRON_SCHEDULE first." >&2; exit 1; }
     ssh_pi bash -s <<EOF
 set -e
-line="$schedule \$HOME/.local/bin/slot-machine >> \$HOME/.local/state/slot-machine/watch.log 2>&1 $MARK"
-(crontab -l 2>/dev/null | grep -vF '$MARK' || true; echo "\$line") | crontab -
-echo "cron:     on"
-crontab -l | grep -F '$MARK'
+app=\$HOME/.local/bin/slot-machine
+log=\$HOME/.local/state/slot-machine/watch.log
+check="$schedule \$app --via cron >> \$log 2>&1 $MARK"
+poll="* * * * * \$app --poll-telegram >> \$log 2>&1 $BOT_MARK"
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' || true; echo "\$check"; echo "\$poll") | crontab -
+echo "cron:     on (checks on CRON_SCHEDULE, Telegram commands every minute)"
+crontab -l | grep -F -e '$MARK' -e '$BOT_MARK'
 EOF
 }
 
 cron_off() {
     ssh_pi bash -s <<EOF
 set -e
-(crontab -l 2>/dev/null | grep -vF '$MARK' || true) | crontab -
-echo "cron:     off"
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' || true) | crontab -
+echo "cron:     off (checks and Telegram commands)"
 EOF
 }
 

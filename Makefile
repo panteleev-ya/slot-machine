@@ -97,4 +97,4 @@ discover:
 # One real check now, outside cron. --force skips MIN_INTERVAL_MINUTES and any back-off;
 # the run lock still keeps it from overlapping a cron run. Output also goes to the log.
 check-now:
-	@$(SSH) $(PI) 'set -o pipefail; $(REMOTE) --force 2>&1 | tee -a $(LOG)'
+	@$(SSH) $(PI) 'set -o pipefail; $(REMOTE) --force --via check-now 2>&1 | tee -a $(LOG)'

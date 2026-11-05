@@ -38,13 +38,13 @@ def save_json(path: Path, data) -> None:
 
 
 @contextmanager
-def single_instance(state_dir: Path):
-    """Yield True if this run holds the lock, False if another run does."""
+def single_instance(state_dir: Path, name: str = LOCK_NAME):
+    """Yield True if this run holds the lock `name`, False if another run does."""
     state_dir.mkdir(parents=True, exist_ok=True)
     if fcntl is None:
         yield True
         return
-    with open(state_dir / LOCK_NAME, "w") as fh:
+    with open(state_dir / name, "w") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:

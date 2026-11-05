@@ -7,7 +7,7 @@ import getpass
 import re
 from pathlib import Path
 
-from . import __version__, ais, telegram, timeutil
+from . import __version__, ais, bot, telegram, timeutil
 from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
 from .messages import session_line
 from .runner import run_check
@@ -22,7 +22,7 @@ def cmd_set_cookie(cfg: Config, value: str) -> int:
         cookies = ais.parse_cookie_input(raw)
     except ValueError as e:
         raise SystemExit(f"Not saved: {e}") from None
-    code, res = run_check(cfg, force=True, new_cookies=cookies)
+    code, res = run_check(cfg, force=True, new_cookies=cookies, via="set-cookie")
     if res is None:
         return code
     if res.kind == "ok":
@@ -75,11 +75,14 @@ def cmd_discover(cfg: Config) -> int:
 
 
 def cmd_find_chat_id(cfg: Config) -> int:
-    chats = telegram.find_chats(cfg)
+    # chats the poller saw (it consumes the bot's messages) plus whatever Telegram still holds
+    chats = dict(load_json(cfg.state_dir / bot.BOT_FILE, {}).get("seen_chats", {}))
+    chats.update(telegram.find_chats(cfg))
     if not chats:
         print("No messages yet. Send your bot any message in Telegram, then run this again.")
     for chat_id, name in chats.items():
-        print(f"TELEGRAM_CHAT_ID={chat_id}    ({name})")
+        note = "  already in TELEGRAM_CHAT_ID" if chat_id in cfg.chat_ids else ""
+        print(f"TELEGRAM_CHAT_ID={chat_id}    ({name}){note}")
     return 0
 
 
@@ -148,8 +151,19 @@ def main(argv=None) -> int:
     )
     mode.add_argument("--test-telegram", action="store_true", help="send a test message")
     mode.add_argument("--status", action="store_true", help="print the current state")
+    mode.add_argument(
+        "--poll-telegram",
+        nargs="?",
+        const=55.0,
+        type=float,
+        metavar="SECONDS",
+        help="answer Telegram commands (/check) for about SECONDS (default 55), then exit; cron runs it every minute",
+    )
     p.add_argument("--force", action="store_true", help="ignore MIN_INTERVAL_MINUTES and any back-off")
     p.add_argument("--dry-run", action="store_true", help="check, but print messages instead of sending them")
+    p.add_argument(
+        "--via", default="manual", metavar="NAME", help="what started this run, for the log (cron, ...)"
+    )
     args = p.parse_args(argv)
     config_path = args.config or default_config_path()
     cfg = load_config(config_path)
@@ -164,4 +178,6 @@ def main(argv=None) -> int:
         return cmd_test_telegram(cfg)
     if args.status:
         return cmd_status(cfg, config_path)
-    return run_check(cfg, force=args.force, dry_run=args.dry_run)[0]
+    if args.poll_telegram is not None:
+        return bot.poll(cfg, args.poll_telegram)
+    return run_check(cfg, force=args.force, dry_run=args.dry_run, via=args.via)[0]

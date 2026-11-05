@@ -58,6 +58,7 @@ class Config:
     backoff_hours: float = 3
     error_alert_after: int = 3
     cron_schedule: str = DEFAULT_CRON  # read by deploy.sh, not by the app
+    check_cooldown_minutes: float = 2  # between Telegram /check commands
     user_agent: str = DEFAULT_UA
     state_dir: Path = field(default_factory=default_state_dir)
     ais_base: str = "https://ais.usvisa-info.com"
@@ -101,6 +102,7 @@ ENV_KEYS = {
     "BACKOFF_HOURS": ("backoff_hours", float),
     "ERROR_ALERT_AFTER": ("error_alert_after", int),
     "CRON_SCHEDULE": ("cron_schedule", str),
+    "TELEGRAM_CHECK_COOLDOWN_MINUTES": ("check_cooldown_minutes", float),
     "USER_AGENT": ("user_agent", str),
     "STATE_DIR": ("state_dir", Path),
     "AIS_BASE_URL": ("ais_base", str),  # for testing against a fake server

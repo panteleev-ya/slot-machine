@@ -1,4 +1,4 @@
-"""Telegram Bot API: send a message, list the chats that wrote to the bot."""
+"""Telegram Bot API: send a message, read incoming messages, list the chats that wrote."""
 
 from __future__ import annotations
 
@@ -45,14 +45,40 @@ def send_message(cfg: Config, text: str, silent: bool = False, chat_id: str | No
     return False
 
 
+def get_updates(cfg: Config, offset: int | None, timeout: int) -> list | None:
+    """Incoming messages after `offset`, waiting up to `timeout` s for one (long polling).
+    Passing an offset tells Telegram the earlier ones are handled. None on any error."""
+    params = {"timeout": timeout, "allowed_updates": json.dumps(["message"])}
+    if offset:
+        params["offset"] = offset
+    url = f"{cfg.telegram_api}/bot{cfg.bot_token}/getUpdates?{urllib.parse.urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout + 15) as r:
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:  # never log the URL: it contains the token
+        log(f"telegram getUpdates HTTP {e.code}")
+        return None
+    except Exception as e:
+        log(f"telegram getUpdates failed: {type(e).__name__}")
+        return None
+    return data.get("result", []) if data.get("ok") else None
+
+
+def chat_name(chat: dict) -> str:
+    return chat.get("username") or chat.get("title") or chat.get("first_name") or ""
+
+
 def find_chats(cfg: Config) -> dict:
-    """{chat_id: name} for everyone who recently messaged the bot."""
+    """{chat_id: name} for everyone whose messages the bot still holds. Empty while
+    --poll-telegram is reading them (HTTP 409); it keeps the ids it saw for --find-chat-id."""
     if not cfg.bot_token:
         raise SystemExit("Put TELEGRAM_BOT_TOKEN in the settings file first.")
     try:
         with urllib.request.urlopen(f"{cfg.telegram_api}/bot{cfg.bot_token}/getUpdates", timeout=20) as r:
             data = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
+        if e.code == 409:  # the poller is long-polling right now
+            return {}
         raise SystemExit(f"Telegram said HTTP {e.code} - check the token.") from None
     except Exception as e:
         raise SystemExit(f"Telegram request failed: {type(e).__name__}") from None
@@ -60,5 +86,5 @@ def find_chats(cfg: Config) -> dict:
     for update in data.get("result", []):
         chat = (update.get("message") or update.get("channel_post") or {}).get("chat") or {}
         if "id" in chat:
-            chats[chat["id"]] = chat.get("username") or chat.get("title") or chat.get("first_name") or ""
+            chats[str(chat["id"])] = chat_name(chat)
     return chats

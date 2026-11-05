@@ -12,12 +12,21 @@ from .timeutil import fmt_clock, fmt_dur, iso, log, parse_ts
 from .watcher import WELCOMES, process, unmark_welcomed
 
 
-def run_check(cfg: Config, force: bool = False, dry_run: bool = False, new_cookies: dict | None = None):
-    """Return (exit code, FetchResult or None if the run was skipped before deciding)."""
+def run_check(
+    cfg: Config,
+    force: bool = False,
+    dry_run: bool = False,
+    new_cookies: dict | None = None,
+    via: str = "manual",
+):
+    """Return (exit code, FetchResult or None if the run was skipped before deciding).
+
+    `via` says what started the run (cron, check-now, telegram:<chat>, ...); it ends
+    every log line so watch.log shows who triggered each check."""
     state_path, cookie_path = cfg.state_dir / "state.json", cfg.state_dir / "cookies.json"
     with single_instance(cfg.state_dir) as got_lock:
         if not got_lock:
-            log("another run is in progress; skipping")
+            log(f"another run is in progress; skipping [{via}]")
             return 0, None
         state = load_json(state_path, {})
         now = timeutil.utcnow()
@@ -35,7 +44,7 @@ def run_check(cfg: Config, force: bool = False, dry_run: bool = False, new_cooki
         last = parse_ts(state.get("last_check_at"))
         if not force and last and now - last < timedelta(minutes=cfg.min_interval_minutes):
             log(
-                f"last check was {fmt_dur((now - last).total_seconds())} ago (< MIN_INTERVAL_MINUTES); skipping"
+                f"last check was {fmt_dur((now - last).total_seconds())} ago (< MIN_INTERVAL_MINUTES); skipping [{via}]"
             )
             return 0, None
 
@@ -69,5 +78,5 @@ def run_check(cfg: Config, force: bool = False, dry_run: bool = False, new_cooki
                     unmark_welcomed(state, chat)
         if not dry_run:
             save_json(state_path, state)
-        log(f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip())
+        log(f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip() + f" [{via}]")
         return (0 if res.kind in ("ok", "empty", "skipped") else 1), res
