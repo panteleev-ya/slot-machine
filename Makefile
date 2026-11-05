@@ -26,7 +26,7 @@ help:
 	@echo "  make find-chat-id   / make test-telegram"
 	@echo "  make set-cookie     paste a fresh _yatri_session (hidden prompt)"
 	@echo "  make discover       list your schedule and location ids"
-	@echo "  make cron-on        hourly checks on   (make cron-off: off)"
+	@echo "  make cron-on        checks on CRON_SCHEDULE   (make cron-off: off)"
 	@echo "  make status         / make logs"
 
 $(VENV)/bin/pytest: requirements-dev.txt

@@ -3,6 +3,7 @@
 import importlib.util
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -114,3 +115,33 @@ def test_local_settings_file_is_git_ignored():
     )
     assert ignored.returncode == 0, "config/slot-machine.env must be git-ignored"
     assert template.returncode == 1, "the template must stay tracked"
+
+
+def run_script(*args):
+    return subprocess.run(
+        [sys.executable, str(ROOT / "deploy" / "sync_config.py"), *map(str, args)],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cron_schedule_mode_prints_validated_value(tmp_path):
+    local = tmp_path / "x.env"
+    local.write_text("CRON_SCHEDULE=17,47   * * * *\n")
+    local.chmod(0o600)
+    proc = run_script("--cron-schedule", local)
+    assert (proc.returncode, proc.stdout) == (0, "17,47 * * * *\n")
+
+
+def test_cron_schedule_mode_default_without_settings(tmp_path):
+    proc = run_script("--cron-schedule", tmp_path / "missing.env")
+    assert (proc.returncode, proc.stdout) == (0, "17 * * * *\n")
+
+
+def test_cron_schedule_mode_refuses_bad_value(tmp_path):
+    local = tmp_path / "x.env"
+    local.write_text("CRON_SCHEDULE=17 * * * *; id\n")
+    local.chmod(0o600)
+    proc = run_script("--cron-schedule", local)
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert "CRON_SCHEDULE must be" in proc.stderr

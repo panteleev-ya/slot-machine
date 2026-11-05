@@ -93,7 +93,21 @@ def sync(template: Path, local: Path) -> int:
     return 0
 
 
+def cron_schedule(local: Path) -> int:
+    """Print the validated CRON_SCHEDULE from the local settings (the default without them)."""
+    try:
+        print(load_config(local).cron_schedule)
+    except SystemExit as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--cron-schedule"]:
+        sys.exit(
+            cron_schedule(Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "config" / "slot-machine.env")
+        )
     args = [Path(a) for a in sys.argv[1:3]]
     template = args[0] if args else ROOT / "config" / "slot-machine.env.example"
     local = args[1] if len(args) > 1 else ROOT / "config" / "slot-machine.env"

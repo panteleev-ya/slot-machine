@@ -24,7 +24,9 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `ENV_KEYS`). New settings and their comments go here. `config/slot-machine.env` is the user's
   filled copy: git-ignored, chmod 600, holds the bot token. Don't read or print it.
   `deploy/sync_config.py` (`make config`) rebuilds it as "template + the user's values" and validates;
-  `make push-config` / `make deploy` upload it to the Pi.
+  `make push-config` / `make deploy` upload it to the Pi. `CRON_SCHEDULE` is read only by `deploy.sh`
+  (via `sync_config.py --cron-schedule`), never by the app; it is validated to five plain crontab
+  fields because it is written into the Pi's crontab through a remote shell.
 
 ## Workflow
 - `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.

@@ -12,9 +12,8 @@ PI=${PI:-yarikp@yarikos.local}
 SSH_KEY=${SSH_KEY:-$HOME/.ssh/pi}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP="$ROOT/dist/slot-machine"
-LOCAL_CONFIG="$ROOT/config/slot-machine.env"
+LOCAL_CONFIG=${LOCAL_CONFIG:-$ROOT/config/slot-machine.env}
 MARK="# slot-machine (managed by deploy.sh)"
-CRON_MINUTE=17
 
 ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
 
@@ -50,12 +49,21 @@ push_config() {
     ssh_pi 'mkdir -p -m 700 ~/.config/slot-machine && cd ~/.config/slot-machine &&
             (umask 077 && cat > slot-machine.env.new) && mv -f slot-machine.env.new slot-machine.env' < "$LOCAL_CONFIG"
     echo "settings: ~/.config/slot-machine/slot-machine.env (uploaded from config/slot-machine.env)"
+    # a changed CRON_SCHEDULE takes effect right away, but only if cron is already on
+    if cron_is_on; then cron_on; fi
 }
 
+cron_is_on() { ssh_pi "crontab -l 2>/dev/null | grep -qF '$MARK'"; }
+
 cron_on() {
+    # CRON_SCHEDULE from the local settings, validated by the app's own parser (five plain
+    # crontab fields, nothing a shell would interpret); the default when there are none
+    local schedule
+    schedule=$(python3 "$ROOT/deploy/sync_config.py" --cron-schedule "$LOCAL_CONFIG") \
+        || { echo "Cron not changed: fix CRON_SCHEDULE first." >&2; exit 1; }
     ssh_pi bash -s <<EOF
 set -e
-line="$CRON_MINUTE * * * * \$HOME/.local/bin/slot-machine >> \$HOME/.local/state/slot-machine/watch.log 2>&1 $MARK"
+line="$schedule \$HOME/.local/bin/slot-machine >> \$HOME/.local/state/slot-machine/watch.log 2>&1 $MARK"
 (crontab -l 2>/dev/null | grep -vF '$MARK' || true; echo "\$line") | crontab -
 echo "cron:     on"
 crontab -l | grep -F '$MARK'

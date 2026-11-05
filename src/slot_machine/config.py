@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,10 @@ DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 )
+DEFAULT_CRON = "17 * * * *"
+# Five crontab time fields and nothing else: the value is written into the Pi's crontab
+# through a remote shell, so quotes, $, ;, % and the like must never get through.
+CRON_RE = re.compile(r"^[0-9A-Za-z*/,-]+( [0-9A-Za-z*/,-]+){4}$")
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -48,6 +53,7 @@ class Config:
     min_interval_minutes: float = 30
     backoff_hours: float = 3
     error_alert_after: int = 3
+    cron_schedule: str = DEFAULT_CRON  # read by deploy.sh, not by the app
     user_agent: str = DEFAULT_UA
     state_dir: Path = field(default_factory=default_state_dir)
     ais_base: str = "https://ais.usvisa-info.com"
@@ -76,6 +82,7 @@ ENV_KEYS = {
     "MIN_INTERVAL_MINUTES": ("min_interval_minutes", float),
     "BACKOFF_HOURS": ("backoff_hours", float),
     "ERROR_ALERT_AFTER": ("error_alert_after", int),
+    "CRON_SCHEDULE": ("cron_schedule", str),
     "USER_AGENT": ("user_agent", str),
     "STATE_DIR": ("state_dir", Path),
     "AIS_BASE_URL": ("ais_base", str),  # for testing against a fake server
@@ -125,4 +132,9 @@ def load_config(path: Path) -> Config:
     for name, value in (("AIS_SCHEDULE_ID", cfg.schedule_id), ("AIS_FACILITY_ID", cfg.facility_id)):
         if value and not value.isdigit():
             raise SystemExit(f"Config error: {name} should be a number")
+    cfg.cron_schedule = " ".join(cfg.cron_schedule.split())
+    if not CRON_RE.match(cfg.cron_schedule):
+        raise SystemExit(
+            "Config error: CRON_SCHEDULE must be the five crontab time fields, like '17 * * * *'"
+        )
     return cfg

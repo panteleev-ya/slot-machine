@@ -122,3 +122,37 @@ def test_example_settings_file_matches_real_settings(tmp_path):
     assert set(ENV_KEYS) - keys == {"AIS_BASE_URL", "TELEGRAM_API_BASE"}, "settings missing from the example"
     copy = write(tmp_path, example.read_text())
     assert load_config(copy).schedule_id == ""  # loads cleanly as shipped
+
+
+# --------------------------------------------------------------------------- cron schedule
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("", "17 * * * *"),  # default
+        ("17,47 * * * *", "17,47 * * * *"),
+        ("*/20  7-23 * * mon-fri", "*/20 7-23 * * mon-fri"),  # extra spaces collapse
+    ],
+)
+def test_cron_schedule(tmp_path, value, expected):
+    assert load_config(write(tmp_path, f"CRON_SCHEDULE={value}\n")).cron_schedule == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "17 * * *",  # four fields
+        "17 * * * * *",  # six
+        "@hourly",
+        "17 * * * *; rm -rf ~",
+        "17 * * * $(id)",
+        "17 * * * `id`",
+        "17 * * * * echo hi",
+        "17 * * * %",
+        "17 * * * '*'",
+    ],
+)
+def test_cron_schedule_rejects_anything_but_five_plain_fields(tmp_path, value):
+    with pytest.raises(SystemExit, match="CRON_SCHEDULE must be the five crontab time fields"):
+        load_config(write(tmp_path, f"CRON_SCHEDULE={value}\n"))

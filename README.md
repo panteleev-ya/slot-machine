@@ -21,7 +21,7 @@ One Python file with no dependencies (a zipapp of `src/slot_machine`), run hourl
 | Program | `~/.local/bin/slot-machine` |
 | Settings | `~/.config/slot-machine/slot-machine.env` (chmod 600) |
 | State, session cookie, log | `~/.local/state/slot-machine/` (chmod 600) |
-| Schedule | crontab, minute 17 of every hour, managed by `make cron-on` / `make cron-off` |
+| Schedule | crontab, `CRON_SCHEDULE` in the settings (default `17 * * * *`, hourly at :17); `make cron-on` / `make cron-off` switch it |
 
 The site's sign-in form has a captcha, so the app can't log in. You sign in in your
 browser and hand it the `_yatri_session` cookie; it uses that session until the site ends it.
@@ -49,7 +49,8 @@ your copy: refreshing keeps only values.
 3. **Session cookie.** DevTools → Application → Cookies → `ais.usvisa-info.com`, copy the value of
    `_yatri_session`, then `make set-cookie` and paste it (input is hidden). It runs one check and
    sends the first message.
-4. **Start the schedule.** `make cron-on`.
+4. **Start the schedule.** `make cron-on`. To change when it runs later: `make edit-config`, set
+   `CRON_SCHEDULE` (five crontab fields, Pi time zone), `make push-config`. A running schedule updates at once.
 
 Day to day: `make status`, `make logs`. After a "session ended" alert: sign in again, `make set-cookie`.
 
