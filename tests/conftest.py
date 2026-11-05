@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-import visa_watch as clock_module  # where the runner reads utcnow() from
-from visa_watch import ENV_KEYS, Config
+
+from slot_machine import timeutil as clock_module  # everything reads utcnow() from here
+from slot_machine.config import ENV_KEYS, Config
 
 from fakes import BOT_TOKEN, CHAT_ID, FakeAIS, FakeTelegram, Server
 from helpers import T0, make_cfg

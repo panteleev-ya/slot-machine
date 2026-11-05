@@ -44,7 +44,7 @@ SIGN_IN_PAGE = """<html><body><form><input type="email" id="user_email"></form><
 
 
 class FakeAIS:
-    """Just enough of ais.usvisa-info.com for visa_watch to talk to."""
+    """Just enough of ais.usvisa-info.com for slot-machine to talk to."""
 
     def __init__(self, locale="en-kz", schedule_id="1234", facility_id="134"):
         self.locale = locale

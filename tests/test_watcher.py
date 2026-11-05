@@ -2,7 +2,8 @@
 
 from datetime import timedelta
 
-from visa_watch import FetchResult, current_earliest, process
+from slot_machine.ais import FetchResult
+from slot_machine.watcher import current_earliest, process
 
 from helpers import T0, empty, kinds, make_cfg, ok
 

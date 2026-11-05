@@ -3,7 +3,8 @@
 from pathlib import Path
 
 import pytest
-from visa_watch import load_config, read_env_file
+
+from slot_machine.config import load_config, read_env_file
 
 
 def write(tmp_path, text, mode=0o600) -> Path:

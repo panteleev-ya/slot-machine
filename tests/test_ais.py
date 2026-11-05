@@ -4,7 +4,8 @@ import json
 from email.message import Message
 
 import pytest
-from visa_watch import (
+
+from slot_machine.ais import (
     classify,
     fetch_dates,
     merge_set_cookies,

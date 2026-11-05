@@ -4,7 +4,9 @@ import json
 from datetime import date
 
 import pytest
-from visa_watch import days_between, fmt_day, fmt_dur, fmt_short, load_json, plural, save_json
+
+from slot_machine.store import load_json, save_json
+from slot_machine.timeutil import days_between, fmt_day, fmt_dur, fmt_short, plural
 
 
 def test_save_json_is_private_and_atomic(tmp_path):

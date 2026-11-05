@@ -3,7 +3,8 @@
 import json
 
 import pytest
-from visa_watch import run_check
+
+from slot_machine.runner import run_check
 
 from fakes import VALID_SESSION
 

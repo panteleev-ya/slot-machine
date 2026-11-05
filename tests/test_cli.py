@@ -1,7 +1,8 @@
 """The command line, as cron and you would run it."""
 
 import pytest
-from visa_watch import main
+
+from slot_machine.cli import main
 
 from fakes import VALID_SESSION
 

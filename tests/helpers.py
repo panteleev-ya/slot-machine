@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from visa_watch import Config, FetchResult
+from slot_machine.ais import FetchResult
+from slot_machine.config import Config
 
 from fakes import BOT_TOKEN, CHAT_ID
 

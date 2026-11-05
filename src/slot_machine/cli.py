@@ -1,0 +1,150 @@
+"""Command line: a plain run is one scheduled check; flags are setup and inspection."""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import os
+import re
+from pathlib import Path
+
+from . import ais, telegram, timeutil
+from .config import PACKAGE_DIR, Config, load_config
+from .messages import session_line
+from .runner import run_check
+from .store import load_json
+from .timeutil import fmt_clock, fmt_day, local, parse_ts
+from .watcher import current_earliest
+
+
+def cmd_set_cookie(cfg: Config, value: str) -> int:
+    raw = value or getpass.getpass("Paste the _yatri_session cookie value (input hidden): ")
+    try:
+        cookies = ais.parse_cookie_input(raw)
+    except ValueError as e:
+        raise SystemExit(f"Not saved: {e}") from None
+    code, res = run_check(cfg, force=True, new_cookies=cookies)
+    if res is None:
+        return code
+    if res.kind == "ok":
+        print(f"Cookie works. Earliest date right now: {res.dates[0]}. Cron takes it from here.")
+    elif res.kind == "empty":
+        print("Cookie works, but no dates were returned (none open, or throttled).")
+    elif res.kind == "expired":
+        print("The site rejected that session. Sign in again and copy a fresh _yatri_session value.")
+    elif res.kind == "skipped":
+        print(f"Cookie saved. {res.detail}. Try --discover, fill the settings file, then run with --force.")
+    else:
+        print(f"Cookie saved, but the check failed: {res.detail}")
+    return code
+
+
+def cmd_discover(cfg: Config) -> int:
+    cookies = load_json(cfg.state_dir / "cookies.json", {})
+    if not cookies.get("_yatri_session"):
+        raise SystemExit("Run --set-cookie first.")
+    headers = ais.ais_headers(cfg, cookies, json_api=False)
+    expired = "That session isn't valid any more; sign in again and rerun --set-cookie."
+    if not cfg.schedule_id:
+        _, _, body = ais.http_get(f"{cfg.ais_base}/{cfg.locale}/niv/account", headers, follow_redirects=True)
+        page = body.decode("utf-8", "replace")
+        if ais.is_sign_in_page(page):
+            raise SystemExit(expired)
+        ids = sorted(set(re.findall(r"/niv/schedule/(\d+)/", page)))
+        print("Schedule ids found:", ", ".join(ids) or "none (read it from the URL after 'Continue')")
+        if len(ids) != 1:
+            return 0
+        cfg.schedule_id = ids[0]
+    _, _, body = ais.http_get(cfg.appointment_url, headers, follow_redirects=True)
+    page = body.decode("utf-8", "replace")
+    if ais.is_sign_in_page(page):
+        raise SystemExit(expired)
+    found = ais.parse_facility_options(page)
+    if not found:
+        print(
+            "Couldn't find the location list on the reschedule page. Use DevTools -> Network instead:\n"
+            "pick Astana and read the number in .../appointment/days/<ID>.json"
+        )
+        return 1
+    print(f"AIS_SCHEDULE_ID={cfg.schedule_id}")
+    for select_id, options in found:
+        print(f"{select_id}:")
+        for value, name in options:
+            print(f"  {value:>6}  {name}")
+    print("Put the Astana number into AIS_FACILITY_ID.")
+    return 0
+
+
+def cmd_find_chat_id(cfg: Config) -> int:
+    chats = telegram.find_chats(cfg)
+    if not chats:
+        print("No messages yet. Send your bot any message in Telegram, then run this again.")
+    for chat_id, name in chats.items():
+        print(f"TELEGRAM_CHAT_ID={chat_id}    ({name})")
+    return 0
+
+
+def cmd_test_telegram(cfg: Config) -> int:
+    ok = telegram.send_message(cfg, "✅ Test message from visa_watch - notifications work.")
+    print("Sent." if ok else "Failed - check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
+    return 0 if ok else 1
+
+
+def cmd_status(cfg: Config) -> int:
+    state = load_json(cfg.state_dir / "state.json", {})
+    cookies = load_json(cfg.state_dir / "cookies.json", {})
+    now = timeutil.utcnow()
+    cur = current_earliest(state)
+    last = parse_ts(state.get("last_check_at"))
+    print(f"Location:   {cfg.label} (facility {cfg.facility_id or '?'}, schedule {cfg.schedule_id or '?'})")
+    print(f"Earliest:   {fmt_day(cur, local(now, cfg).date()) if cur else 'none / unknown'}")
+    print(f"Last check: {fmt_clock(last, cfg) if last else 'never'}")
+    cookie = "cookie saved" if cookies.get("_yatri_session") else "no cookie"
+    print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
+    if state.get("consecutive_errors"):
+        print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
+    return 0
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(
+        description="Watch the earliest US visa appointment date and report to Telegram."
+    )
+    p.add_argument(
+        "--config",
+        type=Path,
+        default=Path(os.environ.get("VISA_WATCH_CONFIG", PACKAGE_DIR / "visa_watch.env")),
+        help="settings file (default: visa_watch.env next to this script)",
+    )
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--set-cookie",
+        nargs="?",
+        const="",
+        metavar="VALUE",
+        help="save a fresh _yatri_session cookie (prompts if VALUE is omitted) and test it",
+    )
+    mode.add_argument(
+        "--discover", action="store_true", help="list schedule ids and location ids for your account"
+    )
+    mode.add_argument(
+        "--find-chat-id", action="store_true", help="show the chat id of whoever messaged your bot"
+    )
+    mode.add_argument("--test-telegram", action="store_true", help="send a test message")
+    mode.add_argument("--status", action="store_true", help="print the current state")
+    p.add_argument("--force", action="store_true", help="ignore MIN_INTERVAL_MINUTES and any back-off")
+    p.add_argument("--dry-run", action="store_true", help="check, but print messages instead of sending them")
+    args = p.parse_args(argv)
+    cfg = load_config(args.config)
+
+    if args.set_cookie is not None:
+        return cmd_set_cookie(cfg, args.set_cookie)
+    if args.discover:
+        return cmd_discover(cfg)
+    if args.find_chat_id:
+        return cmd_find_chat_id(cfg)
+    if args.test_telegram:
+        return cmd_test_telegram(cfg)
+    if args.status:
+        return cmd_status(cfg)
+    return run_check(cfg, force=args.force, dry_run=args.dry_run)[0]
