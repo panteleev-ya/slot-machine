@@ -28,17 +28,24 @@ browser and hand it the `_yatri_session` cookie; it uses that session until the 
 
 ## Setup (all from the Mac)
 
-`make deploy` has already installed the app and a settings template on the Pi.
+`make deploy` has already installed the app on the Pi.
 
-1. **Telegram.** Message @BotFather, send `/newbot`, copy the token. `make edit-config` and set
-   `TELEGRAM_BOT_TOKEN`. Send your bot any message, run `make find-chat-id`, put the number in
-   `TELEGRAM_CHAT_ID`, then `make test-telegram`.
+Settings live in two files in `config/`. The **template** `slot-machine.env.example` is committed: it
+lists every setting with its comment. **Your copy** `slot-machine.env` holds your values (token, IDs);
+it is git-ignored and chmod 600. `make edit-config` creates or refreshes your copy from the template
+(keeping your values, adding any new settings) and opens it in `$EDITOR`. `make push-config` validates
+it and uploads it to the Pi; `make deploy` does that too. Add new settings to the template, not to
+your copy: refreshing keeps only values.
+
+1. **Telegram.** Message @BotFather, send `/newbot`, copy the token. `make edit-config`, set
+   `TELEGRAM_BOT_TOKEN`, then `make push-config`. Send your bot any message, run `make find-chat-id`,
+   put the number in `TELEGRAM_CHAT_ID`, `make push-config` again, then `make test-telegram`.
 2. **Your appointment.** Sign in at <https://ais.usvisa-info.com/en-kz/niv/users/sign_in> and click
    Continue: the URL reads `.../niv/schedule/<AIS_SCHEDULE_ID>/continue_actions`. For
    `AIS_FACILITY_ID`, open the Reschedule page with DevTools → Network open, pick Astana, and read
    the number in `.../appointment/days/<ID>.json` (or run `make discover` after step 3).
    While in the settings, check `TIMEZONE`, `DIGEST_HOUR`, `ALERT_ONLY_BEFORE`, and set
-   `USER_AGENT` to your browser's `navigator.userAgent`.
+   `USER_AGENT` to your browser's `navigator.userAgent`. Then `make push-config`.
 3. **Session cookie.** DevTools → Application → Cookies → `ais.usvisa-info.com`, copy the value of
    `_yatri_session`, then `make set-cookie` and paste it (input is hidden). It runs one check and
    sends the first message.
@@ -68,8 +75,8 @@ src/slot_machine/
   store.py      private atomic JSON files, single-run lock
   timeutil.py   clock and formatting
 tests/          fakes.py (fake site + bot API), one test file per module, test_zipapp.py
-deploy/         build.py (zipapp), deploy.sh, smoke-pi.sh
-config/         slot-machine.env.example
+deploy/         build.py (zipapp), deploy.sh, smoke-pi.sh, sync_config.py (template -> your copy)
+config/         slot-machine.env.example (committed), slot-machine.env (yours, git-ignored)
 ```
 
 Tests and the smoke run only ever talk to the fake servers.

@@ -9,7 +9,7 @@ REMOTE  := .local/bin/slot-machine
 LOG     := .local/state/slot-machine/watch.log
 
 .PHONY: help dev test lint fmt build clean deploy cron-on cron-off smoke-pi status logs \
-        edit-config find-chat-id test-telegram set-cookie discover
+        config edit-config push-config find-chat-id test-telegram set-cookie discover
 
 help:
 	@echo "On the Mac:"
@@ -17,10 +17,12 @@ help:
 	@echo "  make test           run the test suite"
 	@echo "  make lint           ruff check"
 	@echo "  make build          build the single-file zipapp $(APP)"
+	@echo "  make config         create/refresh config/slot-machine.env (git-ignored) from the template"
+	@echo "  make edit-config    the same, then open it in \$$EDITOR"
 	@echo "On the Pi ($(PI)):"
-	@echo "  make deploy         build and install the app (cron untouched)"
+	@echo "  make deploy         build, install the app, upload your settings (cron untouched)"
+	@echo "  make push-config    upload only your settings"
 	@echo "  make smoke-pi       run the installed app against fake servers"
-	@echo "  make edit-config    open the settings file in nano"
 	@echo "  make find-chat-id   / make test-telegram"
 	@echo "  make set-cookie     paste a fresh _yatri_session (hidden prompt)"
 	@echo "  make discover       list your schedule and location ids"
@@ -69,8 +71,15 @@ status:
 logs:
 	@$(SSH) $(PI) 'tail -n 50 $(LOG) 2>/dev/null || echo "no log yet (cron writes it)"'
 
-edit-config:
-	@$(SSH) -t $(PI) 'nano ~/.config/slot-machine/slot-machine.env'
+config:
+	@$(PYTHON) deploy/sync_config.py
+
+edit-config: config
+	@$${EDITOR:-nano} config/slot-machine.env
+	@echo "Saved locally. 'make push-config' sends it to the Pi."
+
+push-config:
+	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
 
 find-chat-id:
 	@$(SSH) $(PI) '$(REMOTE) --find-chat-id'

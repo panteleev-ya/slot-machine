@@ -20,7 +20,11 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 - `deploy/build.py`: builds `dist/slot-machine` (zipapp with its own `__main__.py`, because
   zipapp's generated entry point drops the exit code). `deploy/deploy.sh`: install on the Pi,
   cron on/off. `deploy/smoke-pi.sh`: run the installed app on the Pi against the fakes.
-- `config/slot-machine.env.example`: settings template; a test keeps it in sync with `ENV_KEYS`.
+- `config/slot-machine.env.example`: settings template (committed; a test keeps it in sync with
+  `ENV_KEYS`). New settings and their comments go here. `config/slot-machine.env` is the user's
+  filled copy: git-ignored, chmod 600, holds the bot token. Don't read or print it.
+  `deploy/sync_config.py` (`make config`) rebuilds it as "template + the user's values" and validates;
+  `make push-config` / `make deploy` upload it to the Pi.
 
 ## Workflow
 - `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.
@@ -31,8 +35,8 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 - **Never send requests to the real AIS site** (no curl, no live `--set-cookie`/`--discover`/
   real check). Its terms prohibit bots; the auto-mode classifier also blocks it. Anything live
   against AIS is the user's step (`make set-cookie`, `make discover`, `make cron-on`).
-- Don't handle the user's `_yatri_session` cookie or Telegram token; they go straight into the
-  Pi's settings/state via the user's own commands.
+- Don't handle the user's `_yatri_session` cookie or Telegram token; the token lives in
+  `config/slot-machine.env` (edited by the user), the cookie only in the Pi's state via `make set-cookie`.
 - Tests and smoke runs talk only to `tests/fakes.py`.
 
 ## Host
