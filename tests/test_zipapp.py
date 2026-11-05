@@ -37,6 +37,7 @@ def run(app, env_file, *args, home=None):
 def test_archive_holds_only_the_package(app):
     names = zipfile.ZipFile(app).namelist()
     assert "__main__.py" in names
+    assert "sys.exit(main())" in zipfile.ZipFile(app).read("__main__.py").decode()
     assert "slot_machine/cli.py" in names
     assert not [n for n in names if "__pycache__" in n or n.endswith(".pyc")]
     assert not [n for n in names if not (n == "__main__.py" or n.startswith("slot_machine/"))]
@@ -63,3 +64,15 @@ def test_full_cycle_from_the_archive(app, env_file, ais, tg, tmp_path):
     state_dir = tmp_path / "state"
     assert json.loads((state_dir / "cookies.json").read_text()) == {"_yatri_session": VALID_SESSION}
     assert (state_dir / "state.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_failure_exit_codes_survive_the_archive(app, env_file, ais, tg):
+    # cron and the smoke test rely on these; zipapp's generated entry point dropped them once
+    ais.fake.dates = ["2027-09-01"]
+    assert run(app, env_file, "--set-cookie", VALID_SESSION).returncode == 0
+    ais.fake.sessions.clear()
+    assert run(app, env_file, "--force").returncode == 1  # expired session
+    tg.fake.fail_next, tg.fake.fail_status = 1, 400
+    assert run(app, env_file, "--test-telegram").returncode == 1
+    proc = run(app, env_file, "--set-cookie", "nope")
+    assert proc.returncode == 1 and "Not saved" in proc.stderr

@@ -4,7 +4,6 @@
 state.json
 cookies.json
 *.log
-.visa_watch.lock
 .slot-machine.lock
 
 # build and tooling

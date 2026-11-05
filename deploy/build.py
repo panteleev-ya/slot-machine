@@ -9,28 +9,29 @@ which is how the Pi runs it: no pip, no venv, nothing installed system-wide.
 
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import zipapp
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "slot_machine"
 
+# zipapp's own `main=` entry point ignores the function's return value, so every
+# run would exit 0. Ship an entry point that passes the exit code on to cron.
+ENTRY_POINT = "import sys\n\nfrom slot_machine.cli import main\n\nsys.exit(main())\n"
+
 
 def build(output: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    def keep(path: Path) -> bool:  # path is relative to src/
-        return "__pycache__" not in path.parts and path.suffix != ".pyc"
-
-    zipapp.create_archive(
-        ROOT / "src",
-        target=output,
-        interpreter="/usr/bin/env python3",
-        main="slot_machine.cli:main",
-        filter=lambda p: keep(p) and p.parts[0] == "slot_machine",
-        compressed=True,
-    )
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp)
+        shutil.copytree(
+            PACKAGE, stage / "slot_machine", ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+        )
+        (stage / "__main__.py").write_text(ENTRY_POINT)
+        zipapp.create_archive(stage, target=output, interpreter="/usr/bin/env python3", compressed=True)
     return output
 
 

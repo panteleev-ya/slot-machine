@@ -1,41 +1,51 @@
-# visa-watch: context for Claude Code
+# slot-machine: context for Claude Code
 
-Carried over from a claude.ai conversation (Nov 2026).
+Started from a claude.ai draft (`visa_watch.py`, Nov 2026), restructured into a package.
+User-facing overview, setup and constraints: README.md.
 
 ## Goal
-Run a scheduled job (hourly) that checks the earliest open appointment date for a US
-non-immigrant (B1/B2 tourist) visa at the U.S. Embassy in Astana, Kazakhstan, and
-sends Telegram notifications:
+Hourly check of the earliest open appointment date for a US B1/B2 visa at the U.S. Embassy
+in Astana (AIS site `ais.usvisa-info.com/en-kz`), with Telegram notifications:
 - immediately (with sound) when a sooner date opens than at the previous check;
 - once a day (silent) with a summary: earliest date, change since the last summary,
   best date seen in between, number of checks, and session health.
+Read-only: it never books, cancels or reschedules. Keep it that way.
 
-## What exists
-- `visa_watch.py`: Python 3.9+, standard library only. It's read-only and never books anything.
-  - Requests `GET https://ais.usvisa-info.com/en-kz/niv/schedule/<SCHEDULE_ID>/appointment/days/<FACILITY_ID>.json?appointments[expedite]=false`
-    using the `_yatri_session` cookie copied from a browser after a manual sign-in.
-    The sign-in form has an hCaptcha, so the script doesn't log in and stores no password.
-  - Commands: `--set-cookie`, `--discover`, `--find-chat-id`, `--test-telegram`,
-    `--status`, `--dry-run`, `--force`.
-  - Saves `state.json` and `cookies.json` (chmod 600) next to the script.
-  - Guard rails: at least 30 minutes between checks, a 3-hour pause after an empty
-    answer or HTTP 403/429, alerts when the session expires and after 3 failures in a row.
-- `visa_watch.env.example`: settings template. Copy it to `visa_watch.env` and `chmod 600`.
-- Tested only offline: unit tests plus an end-to-end run against a fake AIS/Telegram
-  server. It has never run against the real site.
+## Layout
+- `src/slot_machine/`: stdlib-only package (Python 3.11+). `watcher.py` holds the decision
+  logic and must stay pure (state + FetchResult + now -> messages). Everything reads the
+  clock through `timeutil.utcnow()`; tests replace it there.
+- `tests/`: pytest. `fakes.py` is a stdlib fake AIS site + fake Telegram Bot API, also runnable
+  standalone (used by `deploy/smoke-pi.sh` on the Pi). `conftest.py` isolates HOME and XDG dirs.
+- `deploy/build.py`: builds `dist/slot-machine` (zipapp with its own `__main__.py`, because
+  zipapp's generated entry point drops the exit code). `deploy/deploy.sh`: install on the Pi,
+  cron on/off. `deploy/smoke-pi.sh`: run the installed app on the Pi against the fakes.
+- `config/slot-machine.env.example`: settings template; a test keeps it in sync with `ENV_KEYS`.
 
-## Constraints to keep in mind
-- The AIS Kazakhstan site's terms prohibit bots and scripts. Keep it read-only and infrequent.
-- Users report AIS throttling (empty lists) after about 48 requests, lasting about 5 hours.
-- Unknown: how long a `_yatri_session` stays valid when hit hourly.
-- Host: Raspberry Pi Zero 2 W `yarikos` on the home network (`yarikos.local`, 10.0.0.85),
-  running the `pi-gen-yarik-os` image (Raspberry Pi OS Lite, Debian 13 trixie, arm64).
-  Python 3.13, ca-certificates, tzdata, cron (active) and systemd-timesyncd are already there.
-  Access: `ssh -i ~/.ssh/pi yarikp@yarikos.local` (key auth), or the UART console at
-  `/dev/cu.usbserial-*`, 115200 baud. `sudo` needs a password. System TZ is Europe/London.
+## Workflow
+- `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.
+- `make deploy` then `make smoke-pi` after any change that should reach the Pi.
+- Git: `main` holds the imported draft; work happens on branches.
 
-## Next steps
-1. Create the Telegram bot, fill `visa_watch.env`, run `--find-chat-id`.
-2. Sign in, find the schedule and facility IDs, run `--set-cookie`.
-3. Install the cron entry: `17 * * * * /usr/bin/python3 /path/visa_watch.py >> /path/visa_watch.log 2>&1`
-4. Watch the first session-expiry alert and tune the interval.
+## Rules for Claude
+- **Never send requests to the real AIS site** (no curl, no live `--set-cookie`/`--discover`/
+  real check). Its terms prohibit bots; the auto-mode classifier also blocks it. Anything live
+  against AIS is the user's step (`make set-cookie`, `make discover`, `make cron-on`).
+- Don't handle the user's `_yatri_session` cookie or Telegram token; they go straight into the
+  Pi's settings/state via the user's own commands.
+- Tests and smoke runs talk only to `tests/fakes.py`.
+
+## Host
+- Raspberry Pi Zero 2 W `yarikos` on the home network (`yarikos.local`, 10.0.0.85), running the
+  `pi-gen-yarik-os` image (Raspberry Pi OS Lite, Debian 13 trixie, arm64). Python 3.13, cron
+  (active), systemd-timesyncd, tzdata, ca-certificates present. System TZ Europe/London.
+- Access: `ssh -i ~/.ssh/pi -o IdentitiesOnly=yes yarikp@yarikos.local` (key auth; add
+  `-o LogLevel=ERROR` to hide the leftover first-boot banner), or UART at `/dev/cu.usbserial-*`,
+  115200 baud. `sudo` needs the user's password.
+- Installed per README: `~/.local/bin/slot-machine`, `~/.config/slot-machine/slot-machine.env`,
+  `~/.local/state/slot-machine/`, crontab line marked `# slot-machine (managed by deploy.sh)`.
+
+## Open questions
+- How long a `_yatri_session` survives hourly use (first "session ended" alert will tell).
+- Whether AIS answers the Pi's requests at all: a bare unauthenticated request from the Pi got
+  HTTP 403. Only the user's first `make set-cookie` will show it.
