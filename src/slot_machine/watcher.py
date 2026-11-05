@@ -19,10 +19,44 @@ EMPTY_IS_REAL_AFTER = timedelta(hours=24)
 
 @dataclass
 class Msg:
-    kind: str  # baseline | sooner | expired | error | digest
+    kind: str  # baseline | welcome | sooner | expired | error | digest
     text: str
     silent: bool = False
-    rollback: dict = field(default_factory=dict)  # state to restore if sending fails
+    rollback: dict = field(default_factory=dict)  # state to restore if it reached nobody
+    to: list[str] | None = None  # chat ids; None = every configured chat
+
+
+# "expired" and "error" go to the owner (first chat) only: they ask for things only the owner
+# can do. Everything else goes to every chat. Kinds that count as a chat's welcome: a chat they didn't reach gets a welcome later.
+WELCOMES = ("baseline", "welcome")
+
+
+def unmark_welcomed(state: dict, chat: str) -> None:
+    """The runner calls this for a chat a baseline/welcome failed to reach."""
+    state["welcomed_chats"] = [c for c in state.get("welcomed_chats") or [] if c != chat]
+
+
+def welcomed_chats(state: dict, cfg: Config) -> list[str]:
+    """Configured chats that already got their baseline or welcome."""
+    welcomed = state.get("welcomed_chats")
+    if welcomed is None:
+        # state from before chat lists: the baseline went to the one chat there was, the first
+        welcomed = [cfg.owner_chat] if cfg.owner_chat else []
+    return [c for c in welcomed if c in cfg.chat_ids]  # removed chats: forgotten
+
+
+def pending_welcomes(state: dict, cfg: Config) -> list[str]:
+    if not state.get("baseline_sent"):
+        return []  # the baseline will greet everyone
+    welcomed = welcomed_chats(state, cfg)
+    return [c for c in cfg.chat_ids if c not in welcomed]
+
+
+def _welcome_new_chats(state: dict, cfg: Config, now: datetime, today) -> list[Msg]:
+    pending = pending_welcomes(state, cfg)
+    text = messages.text_welcome(cfg, state, current_earliest(state), now, today)
+    state["welcomed_chats"] = welcomed_chats(state, cfg) + pending
+    return [Msg("welcome", text, to=[chat]) for chat in pending]
 
 
 def snapshot(state: dict, *keys) -> dict:
@@ -60,12 +94,15 @@ def process(state: dict, res: FetchResult, now: datetime, cfg: Config) -> list[M
                 Msg(
                     "baseline",
                     messages.text_baseline(cfg, earliest, today),
-                    rollback=snapshot(state, "baseline_sent", "last_digest_date", "last_digest_earliest"),
+                    rollback=snapshot(
+                        state, "baseline_sent", "last_digest_date", "last_digest_earliest", "welcomed_chats"
+                    ),
                 )
             )
             state.update(
                 baseline_sent=True, last_digest_date=today.isoformat(), last_digest_earliest=earliest
             )
+            state["welcomed_chats"] = list(cfg.chat_ids)  # the baseline is everyone's welcome
         elif (prev is None or earliest < prev) and (
             not cfg.alert_only_before or earliest < cfg.alert_only_before
         ):
@@ -94,14 +131,24 @@ def process(state: dict, res: FetchResult, now: datetime, cfg: Config) -> list[M
                 Msg(
                     "baseline",
                     messages.text_baseline(cfg, None, today),
-                    rollback=snapshot(state, "baseline_sent", "last_digest_date", "last_digest_earliest"),
+                    rollback=snapshot(
+                        state, "baseline_sent", "last_digest_date", "last_digest_earliest", "welcomed_chats"
+                    ),
                 )
             )
             state.update(baseline_sent=True, last_digest_date=today.isoformat(), last_digest_earliest=None)
+            state["welcomed_chats"] = list(cfg.chat_ids)
 
     elif res.kind == "expired":
         state["session_expired_at"] = iso(now)
-        msgs.append(Msg("expired", messages.text_expired(cfg, state), rollback={"session_expired_at": None}))
+        msgs.append(
+            Msg(
+                "expired",
+                messages.text_expired(cfg, state),
+                rollback={"session_expired_at": None},
+                to=cfg.chat_ids[:1],
+            )
+        )
 
     elif res.kind in ("throttled", "error"):
         counts["failed"] += 1
@@ -111,7 +158,17 @@ def process(state: dict, res: FetchResult, now: datetime, cfg: Config) -> list[M
             state["backoff_until"] = iso(now + timedelta(hours=cfg.backoff_hours))
         if state["consecutive_errors"] >= cfg.error_alert_after and not state.get("error_alert_sent"):
             state["error_alert_sent"] = True
-            msgs.append(Msg("error", messages.text_error(cfg, state), rollback={"error_alert_sent": False}))
+            msgs.append(
+                Msg(
+                    "error",
+                    messages.text_error(cfg, state),
+                    rollback={"error_alert_sent": False},
+                    to=cfg.chat_ids[:1],
+                )
+            )
+
+    if state.get("baseline_sent"):
+        msgs += _welcome_new_chats(state, cfg, now, today)
 
     if (
         state.get("baseline_sent")

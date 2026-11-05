@@ -160,7 +160,7 @@ def test_dry_run_prints_and_saves_nothing(cfg, ais, tg, clock, capsys):
     (cfg.state_dir).mkdir(parents=True)
     (cfg.state_dir / "cookies.json").write_text(json.dumps(JAR))
     run_check(cfg, dry_run=True)
-    assert "--- would send (baseline) ---" in capsys.readouterr().out
+    assert "--- would send (baseline) to 42 ---" in capsys.readouterr().out
     assert tg.fake.messages == []
     assert not (cfg.state_dir / "state.json").exists()
 

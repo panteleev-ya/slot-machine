@@ -12,14 +12,16 @@ from .config import Config
 from .timeutil import log
 
 
-def send_message(cfg: Config, text: str, silent: bool = False) -> bool:
-    """Send one HTML message; retry once unless Telegram rejected it outright."""
-    if not (cfg.bot_token and cfg.chat_id):
+def send_message(cfg: Config, text: str, silent: bool = False, chat_id: str | None = None) -> bool:
+    """Send one HTML message to one chat (default: the owner's); retry once unless
+    Telegram rejected it outright."""
+    chat_id = chat_id or cfg.owner_chat
+    if not (cfg.bot_token and chat_id):
         log("telegram not configured; message not sent")
         return False
     data = urllib.parse.urlencode(
         {
-            "chat_id": cfg.chat_id,
+            "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
             "disable_notification": "true" if silent else "false",
@@ -33,7 +35,7 @@ def send_message(cfg: Config, text: str, silent: bool = False) -> bool:
                 if json.loads(r.read().decode()).get("ok"):
                     return True
         except urllib.error.HTTPError as e:  # never log the URL: it contains the token
-            log(f"telegram HTTP {e.code}: {e.read()[:200]!r}")
+            log(f"telegram HTTP {e.code} for chat {chat_id}: {e.read()[:200]!r}")
             if 400 <= e.code < 500 and e.code != 429:
                 return False
         except Exception as e:

@@ -28,6 +28,11 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   (via `sync_config.py --cron-schedule`), never by the app; it is validated to five plain crontab
   fields because it is written into the Pi's crontab through a remote shell.
 
+- Telegram fanout: `TELEGRAM_CHAT_ID` is a comma list; `Msg.to` picks recipients (None = all;
+  `expired`/`error` go to the first chat only). `state["welcomed_chats"]` tracks who got a baseline
+  or welcome; state without it is treated as "only the first chat was greeted". A message is rolled
+  back only if it reached nobody; a missed baseline/welcome is retried for that chat alone.
+
 ## Workflow
 - `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.
 - `make deploy` then `make smoke-pi` after any change that should reach the Pi.

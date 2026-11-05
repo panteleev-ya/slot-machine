@@ -8,6 +8,11 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
 - **Quiet daily summary** at `DIGEST_HOUR`: earliest date, change since yesterday, best date
   seen in between, number of checks, session health. If it stops arriving, something broke.
 - **Session ended** when the site logs the session out, and **checks failing** after 3 in a row.
+- **Several people** can get the alerts: `TELEGRAM_CHAT_ID` takes a comma-separated list. Everyone
+  gets the date alerts and the summary; only the first chat (yours) gets "session ended" and
+  "checks failing". Nobody can subscribe themselves. To add someone: they message the bot (`/start`),
+  `make find-chat-id` shows their id, add it to `TELEGRAM_CHAT_ID`, `make push-config`. The next check
+  sends them a welcome with the current earliest date.
 
 It only reads. It never books, cancels or reschedules.
 

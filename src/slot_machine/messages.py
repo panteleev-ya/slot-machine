@@ -25,17 +25,39 @@ def session_line(cfg: Config, state: dict, now: datetime) -> str:
     return line
 
 
+def _rules(cfg: Config) -> str:
+    rule = "You'll get an alert when a sooner date opens"
+    if cfg.alert_only_before:
+        rule += f" before {fmt_short(cfg.alert_only_before)}"
+    return rule + f", plus a quiet summary daily around {cfg.digest_hour:02d}:00."
+
+
 def text_baseline(cfg: Config, earliest: str | None, today: date) -> str:
     first = (
         f"Earliest date now: {fmt_day(earliest, today)}"
         if earliest
         else "No dates are offered right now (or the site is throttling); you'll hear when that changes."
     )
-    rule = "You'll get an alert when a sooner date opens"
-    if cfg.alert_only_before:
-        rule += f" before {fmt_short(cfg.alert_only_before)}"
-    rule += f", plus a quiet summary daily around {cfg.digest_hour:02d}:00."
-    return "\n".join([f"<b>✅ Visa slot watch started - {esc(cfg.label)}</b>", first, rule])
+    return "\n".join([f"<b>✅ Visa slot watch started - {esc(cfg.label)}</b>", first, _rules(cfg)])
+
+
+def text_welcome(cfg: Config, state: dict, cur: str | None, now: datetime, today: date) -> str:
+    """For a chat added to TELEGRAM_CHAT_ID after the watch started."""
+    seen_at = parse_ts(state.get("last_seen_at"))
+    if cur and seen_at:
+        status = f"Earliest date at the last check ({fmt_clock(seen_at, cfg)}): {fmt_day(cur, today)}"
+    elif state.get("last_empty_at"):
+        status = "No dates were offered at the last check."
+    else:
+        status = "No successful check yet."
+    return "\n".join(
+        [
+            f"<b>👋 You're subscribed to the visa slot watch - {esc(cfg.label)}</b>",
+            "It watches the earliest open US visa appointment date.",
+            status,
+            _rules(cfg),
+        ]
+    )
 
 
 def text_sooner(cfg: Config, earliest: str, prev: str | None, today: date) -> str:

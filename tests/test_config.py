@@ -133,6 +133,9 @@ def test_example_settings_file_matches_real_settings(tmp_path):
         ("", "17 * * * *"),  # default
         ("17,47 * * * *", "17,47 * * * *"),
         ("*/20  7-23 * * mon-fri", "*/20 7-23 * * mon-fri"),  # extra spaces collapse
+        ("*/5 * * * *", "*/5 * * * *"),
+        ("0,5,10,15,20,25,30,35,40,45,50,55 * * * *", "0,5,10,15,20,25,30,35,40,45,50,55 * * * *"),
+        ("0-30/10 9-17/2 1,15 jan-jun mon,fri", "0-30/10 9-17/2 1,15 jan-jun mon,fri"),
     ],
 )
 def test_cron_schedule(tmp_path, value, expected):
@@ -151,6 +154,10 @@ def test_cron_schedule(tmp_path, value, expected):
         "17 * * * * echo hi",
         "17 * * * %",
         "17 * * * '*'",
+        "/5 * * * *",  # a step needs * or a range in front: cron never runs this
+        "17, * * * *",
+        "*/ * * * *",
+        "1--5 * * * *",
     ],
 )
 def test_cron_schedule_rejects_anything_but_five_plain_fields(tmp_path, value):

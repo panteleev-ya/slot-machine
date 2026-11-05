@@ -18,7 +18,11 @@ DEFAULT_UA = (
 DEFAULT_CRON = "17 * * * *"
 # Five crontab time fields and nothing else: the value is written into the Pi's crontab
 # through a remote shell, so quotes, $, ;, % and the like must never get through.
-CRON_RE = re.compile(r"^[0-9A-Za-z*/,-]+( [0-9A-Za-z*/,-]+){4}$")
+# Each field is a comma list of items; an item is *, a number or name, or a range, with an
+# optional /step. A bare "/5" is not valid cron: cron silently never runs such a line.
+_CRON_ITEM = r"(\*|[0-9A-Za-z]+(-[0-9A-Za-z]+)?)(/[0-9]+)?"
+_CRON_FIELD = rf"{_CRON_ITEM}(,{_CRON_ITEM})*"
+CRON_RE = re.compile(rf"^{_CRON_FIELD}( {_CRON_FIELD}){{4}}$")
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -58,6 +62,20 @@ class Config:
     state_dir: Path = field(default_factory=default_state_dir)
     ais_base: str = "https://ais.usvisa-info.com"
     telegram_api: str = "https://api.telegram.org"
+
+    @property
+    def chat_ids(self) -> list[str]:
+        """TELEGRAM_CHAT_ID as a list: "1, 2" -> ["1", "2"]. The first chat is the owner's."""
+        ids = []
+        for part in self.chat_id.split(","):
+            if part.strip() and part.strip() not in ids:
+                ids.append(part.strip())
+        return ids
+
+    @property
+    def owner_chat(self) -> str | None:
+        """Gets the housekeeping alerts (session ended, checks failing)."""
+        return self.chat_ids[0] if self.chat_ids else None
 
     @property
     def appointment_url(self) -> str:
@@ -132,6 +150,11 @@ def load_config(path: Path) -> Config:
     for name, value in (("AIS_SCHEDULE_ID", cfg.schedule_id), ("AIS_FACILITY_ID", cfg.facility_id)):
         if value and not value.isdigit():
             raise SystemExit(f"Config error: {name} should be a number")
+    for chat in cfg.chat_ids:
+        if not re.fullmatch(r"-?\d+", chat):
+            raise SystemExit(
+                f"Config error: TELEGRAM_CHAT_ID {chat!r} should be a number (comma-separate several chats)"
+            )
     cfg.cron_schedule = " ".join(cfg.cron_schedule.split())
     if not CRON_RE.match(cfg.cron_schedule):
         raise SystemExit(

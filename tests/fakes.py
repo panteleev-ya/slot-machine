@@ -130,6 +130,7 @@ class FakeTelegram:
         self.messages: list[dict] = []
         self.fail_next = 0
         self.fail_status = 500
+        self.fail_chats: set[str] = set()  # these chat ids always get 400 'chat not found'
 
     def handle(self, h: BaseHTTPRequestHandler) -> None:
         path = urllib.parse.urlsplit(h.path).path
@@ -163,13 +164,16 @@ class FakeTelegram:
             ]
             return send(h, 200, json.dumps({"ok": True, "result": updates}).encode(), "application/json")
         if method == "sendMessage" and h.command == "POST":
+            form = urllib.parse.parse_qs(h.rfile.read(int(h.headers.get("Content-Length", 0))).decode())
+            msg = {k: v[0] for k, v in form.items()}
             if self.fail_next > 0:
                 self.fail_next -= 1
                 return send(
                     h, self.fail_status, b'{"ok": false, "description": "fake failure"}', "application/json"
                 )
-            form = urllib.parse.parse_qs(h.rfile.read(int(h.headers.get("Content-Length", 0))).decode())
-            msg = {k: v[0] for k, v in form.items()}
+            if msg.get("chat_id") in self.fail_chats:
+                body = b'{"ok": false, "error_code": 400, "description": "Bad Request: chat not found"}'
+                return send(h, 400, body, "application/json")
             self.messages.append(msg)
             return send(
                 h,

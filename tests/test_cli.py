@@ -85,7 +85,7 @@ def test_version(capsys):
 def test_test_telegram_failure(env_file, tg, capsys):
     tg.fake.fail_next, tg.fake.fail_status = 1, 400
     assert run(env_file, "--test-telegram") == 1
-    assert "Failed - check TELEGRAM_BOT_TOKEN" in capsys.readouterr().out
+    assert "42: FAILED - check TELEGRAM_BOT_TOKEN" in capsys.readouterr().out
 
 
 def test_find_chat_id(env_file, tg, capsys):

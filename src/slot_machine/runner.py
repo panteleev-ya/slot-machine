@@ -9,7 +9,7 @@ from .ais import FetchResult, fetch_dates
 from .config import Config
 from .store import load_json, save_json, single_instance
 from .timeutil import fmt_clock, fmt_dur, iso, log, parse_ts
-from .watcher import process
+from .watcher import WELCOMES, process, unmark_welcomed
 
 
 def run_check(cfg: Config, force: bool = False, dry_run: bool = False, new_cookies: dict | None = None):
@@ -54,10 +54,19 @@ def run_check(cfg: Config, force: bool = False, dry_run: bool = False, new_cooki
         if res.cookies is not None and res.cookies != cookies:
             save_json(cookie_path, res.cookies)
         for m in process(state, res, now, cfg):
+            targets = cfg.chat_ids if m.to is None else m.to
             if dry_run:
-                print(f"--- would send ({m.kind}{', silent' if m.silent else ''}) ---\n{m.text}\n")
-            elif not telegram.send_message(cfg, m.text, m.silent):
-                state.update(m.rollback)  # try again on the next run
+                to = ", ".join(targets) or "nobody"
+                print(f"--- would send ({m.kind}{', silent' if m.silent else ''}) to {to} ---\n{m.text}\n")
+                continue
+            failed = [c for c in targets if not telegram.send_message(cfg, m.text, m.silent, chat_id=c)]
+            if not targets:
+                log("telegram not configured; message not sent")
+            if len(failed) == len(targets):
+                state.update(m.rollback)  # reached nobody: try again on the next run
+            if m.kind in WELCOMES:
+                for chat in failed:  # a chat that missed its welcome gets one next run
+                    unmark_welcomed(state, chat)
         if not dry_run:
             save_json(state_path, state)
         log(f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip())

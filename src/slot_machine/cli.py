@@ -13,7 +13,7 @@ from .messages import session_line
 from .runner import run_check
 from .store import load_json
 from .timeutil import fmt_clock, fmt_day, local, parse_ts
-from .watcher import current_earliest
+from .watcher import current_earliest, pending_welcomes
 
 
 def cmd_set_cookie(cfg: Config, value: str) -> int:
@@ -84,9 +84,19 @@ def cmd_find_chat_id(cfg: Config) -> int:
 
 
 def cmd_test_telegram(cfg: Config) -> int:
-    ok = telegram.send_message(cfg, "✅ Test message from slot-machine - notifications work.")
-    print("Sent." if ok else "Failed - check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
-    return 0 if ok else 1
+    if not cfg.chat_ids:
+        print("Failed - set TELEGRAM_CHAT_ID first.")
+        return 1
+    failed = 0
+    for chat in cfg.chat_ids:
+        ok = telegram.send_message(
+            cfg, "✅ Test message from slot-machine - notifications work.", chat_id=chat
+        )
+        print(
+            f"{chat}: {'sent' if ok else 'FAILED - check TELEGRAM_BOT_TOKEN, and that this chat messaged the bot'}"
+        )
+        failed += not ok
+    return 1 if failed else 0
 
 
 def cmd_status(cfg: Config, config_path: Path) -> int:
@@ -100,6 +110,9 @@ def cmd_status(cfg: Config, config_path: Path) -> int:
     print(f"Last check: {fmt_clock(last, cfg) if last else 'never'}")
     cookie = "cookie saved" if cookies.get("_yatri_session") else "no cookie"
     print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
+    pending = pending_welcomes(state, cfg)
+    chats = ", ".join(f"{c}{' (owner)' if i == 0 else ''}" for i, c in enumerate(cfg.chat_ids)) or "none"
+    print(f"Chats:      {chats}" + (f"; welcome on the next check: {', '.join(pending)}" if pending else ""))
     if state.get("consecutive_errors"):
         print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
     print(f"Settings:   {config_path}{'' if config_path.exists() else ' (missing)'}")
