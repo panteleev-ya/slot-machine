@@ -56,7 +56,7 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 ## Workflow
 - `make dev`, `make test`, `make lint` (ruff; the formatter owns line length). Run both before committing.
 - `make deploy` then `make smoke-pi` after any change that should reach the Pi.
-- Git: `main` holds the imported draft; work happens on branches.
+- Git: private repo `panteleev-ya/slot-machine` on GitHub (`origin`). Work on a branch, merge into `main`. The original draft is the first commit.
 
 ## Rules for Claude
 - **Never send requests to the real AIS site** (no curl, no live `--set-cookie`/`--discover`/
