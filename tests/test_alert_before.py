@@ -188,3 +188,57 @@ def test_status_shows_each_chats_cutoff(live, tg, env_file, capsys, monkeypatch)
 def test_help_lists_the_command(live, tg):
     [reply] = say(live, tg, FRIEND, "/help")
     assert "/set_alert_before YYYY-MM-DD" in reply
+
+
+def test_with_a_cutoff_every_change_before_it_alerts():
+    """The table from 2026-11-06: appointment May 24, 2028; earliest date at each check."""
+    cfg = make_cfg(chat_id=OWNER, alert_only_before="2028-05-24")
+    state = started(cfg)
+    state["last_seen"] = "2028-08-22"
+    heard = []
+    for earliest in [
+        "2028-05-17",
+        "2028-05-17",
+        "2028-05-20",
+        "2028-05-20",
+        "2028-05-10",
+        "2028-08-22",
+        "2028-05-20",
+    ]:
+        msgs = process(state, ok(earliest), T0, cfg)
+        heard.append(msgs[0].text.splitlines()[0] if msgs else None)
+    sooner = "<b>🟢 Sooner visa date opened - Astana</b>"
+    later = "<b>🟡 Earliest visa date moved later, still before your appointment - Astana</b>"
+    assert heard == [sooner, None, later, None, sooner, None, sooner]
+
+
+def test_later_date_says_the_earlier_one_is_gone():
+    cfg = make_cfg(chat_id=OWNER, alert_only_before="2028-05-24")
+    state = started(cfg)
+    state["last_seen"] = "2028-05-17"
+    [m] = process(state, ok("2028-05-20"), T0, cfg)
+    assert m.text.splitlines()[1:4] == [
+        "Earliest: Sat May 20, 2028 (in 562 days)",
+        "4 days before your current appointment, Wed May 24, 2028.",
+        "May 17, 2028 is no longer open.",
+    ]
+    assert m.silent is False and m.rollback == {"last_seen": "2028-05-17"}
+
+
+def test_without_a_cutoff_only_sooner_dates_alert():
+    cfg = make_cfg(chat_id=f"{OWNER},{FRIEND}", alert_only_before="2028-05-24")
+    state = started(cfg)
+    state["last_seen"] = "2028-05-17"
+    [m] = process(state, ok("2028-05-20"), T0, cfg, {FRIEND: ""})  # the friend turned the cutoff off
+    assert m.to == [OWNER]
+    mine, theirs = process(state, ok("2028-05-12"), T0, cfg, {FRIEND: ""})  # sooner: both hear it
+    assert (mine.to, theirs.to) == ([OWNER], [FRIEND])
+    assert "Was May 20, 2028 at the previous check: 8 days sooner." in theirs.text
+    assert process(state, ok("2028-05-12"), T0, cfg, {FRIEND: ""}) == []  # unchanged: nobody
+
+
+def test_a_later_date_past_the_cutoff_is_silent():
+    cfg = make_cfg(chat_id=OWNER, alert_only_before="2028-05-24")
+    state = started(cfg)
+    state["last_seen"] = "2028-05-17"
+    assert process(state, ok("2028-05-30"), T0, cfg) == []

@@ -38,8 +38,10 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   chats seen outside the list). The offset is saved before a command runs, so a crash never
   repeats it. `/check` calls `run_check(force=True, via="telegram:<chat>")`, with a cooldown.
 - Per-chat cutoffs: `/set_alert_before` stores `telegram.json["alert_before"][chat]` ("" = off; missing =
-  ALERT_ONLY_BEFORE). The runner reads that file and passes it to `process()`, which sends a "sooner"
-  alert only to chats whose cutoff the date beats. Only the poller writes `telegram.json`.
+  ALERT_ONLY_BEFORE). The runner reads that file and passes it to `process()`. A chat with a cutoff
+  gets a "sooner" alert whenever the earliest date changes (either way) and beats it, worded against
+  the cutoff; one without gets it only for dates sooner than the previous check. One message per
+  distinct cutoff. Only the poller writes `telegram.json`.
 - Renewal page: `renew.py`, `slot-machine --serve`, started by cron every minute (exits if its
   lock `.renew.lock` is held, so cron is the watchdog). Single-threaded stdlib HTTPServer, dual-stack.
   Write-only: `/api/cookie` (Bearer RENEW_TOKEN, used by `extension/`) and `/renew` (form, link token

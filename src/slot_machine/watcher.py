@@ -126,16 +126,18 @@ def process(
                 baseline_sent=True, last_digest_date=today.isoformat(), last_digest_earliest=earliest
             )
             state["welcomed_chats"] = list(cfg.chat_ids)  # the baseline is everyone's welcome
-        elif prev is None or earliest < prev:
-            # "Sooner" means sooner than at the previous good check, so a slot that
-            # vanishes and comes back alerts again - each reappearance is a new chance.
-            # Each chat hears about it only if it also beats that chat's cutoff.
-            # The text compares the date with that chat's cutoff (its current appointment), so
-            # chats with the same cutoff share one message.
+        elif earliest != prev:
+            # A chat with a cutoff (its current appointment) hears about every change of the
+            # earliest date while it's before that cutoff, later ones included: if the date
+            # it was told about got booked, the next one may be just as worth taking. A chat
+            # without one hears only about dates sooner than at the previous good check. Either
+            # way a slot that vanishes and comes back alerts again: each reappearance is a new
+            # chance. Chats with the same cutoff share one message (the text names it).
             by_cutoff: dict[str, list[str]] = {}
             for c in cfg.chat_ids:
                 cutoff = alert_cutoff(cfg, alert_before, c)
-                if earliest < (cutoff or "9999-12-31"):
+                wanted = earliest < cutoff if cutoff else (prev is None or earliest < prev)
+                if wanted:
                     by_cutoff.setdefault(cutoff, []).append(c)
             for cutoff, to in by_cutoff.items():
                 text = messages.text_sooner(cfg, earliest, prev, today, cutoff)

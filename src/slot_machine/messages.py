@@ -63,23 +63,27 @@ def text_welcome(cfg: Config, state: dict, cur: str | None, now: datetime, today
 
 def text_sooner(cfg: Config, earliest: str, prev: str | None, today: date, cutoff: str = "") -> str:
     """`cutoff` is the chat's alert-before date, its current appointment: the date compared
-    against. Without one, the comparison is with the previous check."""
-    title = "Sooner visa date opened" if prev else "Visa dates available again"
+    against. Without one, the comparison is with the previous check. With one, the earliest
+    date may also have got later (the one before it is gone) while still beating the cutoff."""
+    later = bool(prev) and earliest > prev
+    if later:
+        title = "🟡 Earliest visa date moved later, still before your appointment"
+    else:
+        title = "🟢 Sooner visa date opened" if prev else "🟢 Visa dates available again"
+    lines = [f"<b>{title} - {esc(cfg.label)}</b>", f"Earliest: {fmt_day(earliest, today)}"]
     if cutoff:
         gain = plural(days_between(earliest, cutoff), "day")
-        change = f"{gain} before your current appointment, {fmt_date(cutoff)}."
+        lines.append(f"{gain} before your current appointment, {fmt_date(cutoff)}.")
+        if later:
+            lines.append(f"{fmt_short(prev)} is no longer open.")
     elif prev:
-        change = f"Was {fmt_short(prev)} at the previous check: {plural(days_between(earliest, prev), 'day')} sooner."
+        lines.append(
+            f"Was {fmt_short(prev)} at the previous check: {plural(days_between(earliest, prev), 'day')} sooner."
+        )
     else:
-        change = "Earlier checks found no dates at all."
-    return "\n".join(
-        [
-            f"<b>🟢 {title} - {esc(cfg.label)}</b>",
-            f"Earliest: {fmt_day(earliest, today)}",
-            change,
-            f"Slots go fast: {esc(cfg.appointment_url)}",
-        ]
-    )
+        lines.append("Earlier checks found no dates at all.")
+    lines.append(f"Slots go fast: {esc(cfg.appointment_url)}")
+    return "\n".join(lines)
 
 
 def text_expired(cfg: Config, state: dict) -> str:
