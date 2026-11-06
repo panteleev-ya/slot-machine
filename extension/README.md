@@ -31,7 +31,8 @@ When the "session ended" message arrives:
    popup can't tell whether you're signed in yet.
 2. Click the extension → **Send session to the Pi**. It answers with the earliest date. It also
    sends this browser's User-Agent: the site only accepts the session from the same browser
-   version, so the Pi checks with that one. A failed send doesn't alert the chats again.
+   version, so the Pi checks with that one. A session the site rejects (say, sent before you
+   finished signing in) is never saved: the Pi keeps the one it has, and nobody is alerted.
 
 Don't sign out of the visa site afterwards: that ends the Pi's session too. Just close the tab.
 Everyone who got "session ended" gets "watch resumed" once it works again: if it has already

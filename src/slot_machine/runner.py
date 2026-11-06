@@ -33,7 +33,11 @@ def run_check(
     every log line so watch.log shows who triggered each check. `new_user_agent` is the
     browser the new cookies came from (the extension and the renewal page send it); None
     means the USER_AGENT setting (make set-cookie). Checks with that session use it, since
-    the site rejects a session sent from a different browser version."""
+    the site rejects a session sent from a different browser version.
+
+    New cookies are tried first and saved only if the site accepts them (or, when no
+    working session would be lost, if the check fails for another reason). A rejected
+    one changes nothing and returns (1, the rejected result) without any message."""
     state_path, cookie_path = cfg.state_dir / "state.json", cfg.state_dir / "cookies.json"
     with single_instance(cfg.state_dir) as got_lock:
         if not got_lock:
@@ -41,11 +45,23 @@ def run_check(
             return 0, None
         state = load_json(state_path, {})
         now = timeutil.utcnow()
+        cookies = load_json(cookie_path, {})
+        res = None
         if new_cookies is not None:
-            save_json(cookie_path, new_cookies)
+            # Try the new session before saving it: one that doesn't work must never replace
+            # one that does (an anonymous cookie, sent before signing in, is rejected).
+            if cfg.schedule_id and cfg.facility_id:
+                res = fetch_dates(
+                    dataclasses.replace(cfg, user_agent=new_user_agent or cfg.user_agent), new_cookies
+                )
+            current_works = bool(cookies.get("_yatri_session")) and not state.get("session_expired_at")
+            if res and (res.kind == "expired" or (res.kind not in ("ok", "empty") and current_works)):
+                kept = "kept the current one" if current_works else "the session stays ended"
+                log(f"new session not saved ({f'{res.kind} {res.detail}'.strip()}); {kept} [{via}]")
+                return 1, res
             # session_expired_at is only set once the "session ended" alert reached a chat
             # (it's rolled back otherwise), so this is a renewal the bot asked for. Keep the
-            # first time it asked, in case a renewal attempt fails and another one follows.
+            # first time it asked, in case this session fails later and another one follows.
             if state.get("session_expired_at") and not state.get("renew_requested_at"):
                 state["renew_requested_at"] = state["session_expired_at"]
             state.update(
@@ -56,17 +72,20 @@ def run_check(
                 consecutive_errors=0,
                 error_alert_sent=False,
             )
-        cookies = load_json(cookie_path, {})
+            cookies = new_cookies
+            save_json(cookie_path, cookies)
 
         last = parse_ts(state.get("last_check_at"))
-        if not force and last and now - last < timedelta(minutes=cfg.min_interval_minutes):
+        if res is None and not force and last and now - last < timedelta(minutes=cfg.min_interval_minutes):
             log(
                 f"last check was {fmt_dur((now - last).total_seconds())} ago (< MIN_INTERVAL_MINUTES); skipping [{via}]"
             )
             return 0, None
 
         backoff = parse_ts(state.get("backoff_until"))
-        if not (cfg.schedule_id and cfg.facility_id):
+        if res is not None:
+            pass  # the new session's trial was this run's check
+        elif not (cfg.schedule_id and cfg.facility_id):
             res = FetchResult("skipped", detail="AIS_SCHEDULE_ID / AIS_FACILITY_ID not set")
         elif not cookies.get("_yatri_session"):
             res = FetchResult("skipped", detail="no session cookie yet (run --set-cookie)")

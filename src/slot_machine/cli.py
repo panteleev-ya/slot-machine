@@ -32,9 +32,17 @@ def cmd_set_cookie(cfg: Config, value: str) -> int:
     elif res.kind == "empty":
         print("Cookie works, but no dates were returned (none open, or throttled).")
     elif res.kind == "expired":
-        print("The site rejected that session. Sign in again and copy a fresh _yatri_session value.")
+        print(
+            "Not saved: the site rejected that session. Sign in again and copy a fresh _yatri_session value."
+        )
+        if renew.kept_instead(cfg, cookies):
+            print("The Pi keeps the session it has, which still works.")
     elif res.kind == "skipped":
         print(f"Cookie saved. {res.detail}. Try --discover, fill the settings file, then run with --force.")
+    elif renew.kept_instead(cfg, cookies):
+        print(
+            f"Not saved: the check failed ({res.detail}). The Pi keeps the session it has; try again later."
+        )
     else:
         print(f"Cookie saved, but the check failed: {res.detail}")
     return code

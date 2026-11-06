@@ -54,8 +54,11 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `renew_requested_at` (first expiry); the next ok/empty check sends `renewed` to the told chats still
   listed and clears both (rolled back if it reached nobody). `/renew` answers any listed chat.
   `make share-extension` zips `extension/` and copies the current token (`renew_token.py --copy`).
-  A renewal the site rejects (expired while `renew_requested_at` is set) sends no new "session ended"
-  and puts `session_expired_at` back to the first expiry, so the alert's link keeps working.
+- New cookies are tried before they're saved (`run_check(new_cookies=...)`): rejected (`expired`)
+  ones are never saved; ones whose check fails otherwise are saved only if no working session would
+  be lost. A refused one returns early: no state change, no message (`renew.kept_instead` words the
+  reply). If a saved session is rejected later while `renew_requested_at` is set, no new "session
+  ended" goes out and `session_expired_at` goes back to the first expiry, so the alert's link works.
 - Session User-Agent: the site appears to reject a session sent with another browser version
   (docs/ais-notes.md). The extension sends `user_agent` (else the request's header is used; the
   renewal page uses the form post's header); `run_check(new_user_agent=...)` stores it as

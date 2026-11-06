@@ -39,7 +39,7 @@ def test_set_cookie_prompts_when_no_value(env_file, ais, clock, monkeypatch, cap
 
 def test_set_cookie_rejected_by_site(env_file, ais, clock, capsys):
     assert run(env_file, "--set-cookie", "x" * 40) == 1
-    assert "The site rejected that session" in capsys.readouterr().out
+    assert "Not saved: the site rejected that session" in capsys.readouterr().out
 
 
 def test_set_cookie_empty_answer(env_file, ais, clock, capsys):

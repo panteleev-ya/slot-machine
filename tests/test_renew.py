@@ -209,8 +209,8 @@ def test_api_when_the_site_rejects_the_session(server, live):
     assert status == 200 and data == {
         "ok": False,
         "message": (
-            "The site didn't accept that session: it sent the Pi to the sign-in page. "
-            "Sign in in this browser until you see your appointment page, then send again."
+            "Not saved: the site treats that session as signed out. Sign in in this browser until you "
+            "see your appointment page, then send again. The Pi keeps the session it has, which still works."
         ),
     }
 
@@ -269,7 +269,7 @@ def test_page_after_a_rejected_session_keeps_the_link(server, expired, tg, clock
     tg.fake.messages.clear()
     clock.advance(minutes=3)
     status, _, page = form(server, t=old, cookie="z" * 40)
-    assert "The site didn't accept that session" in html.unescape(page)
+    assert "the site treats that session as signed out" in html.unescape(page)
     assert link_token(expired, state(expired)) == old and f'name="t" value="{old}"' in page
     assert tg.fake.messages == []  # no second "session ended" in the chats
     status, _, page = form(server, t=old, cookie=FRESH)  # the alert's link still works
@@ -537,3 +537,61 @@ def test_status_names_the_browser():
 def test_popup_sends_the_user_agent():
     popup = (ROOT / "extension" / "popup.js").read_text()
     assert "JSON.stringify({ cookie, user_agent: navigator.userAgent })" in popup
+
+
+# --------------------------------------------------------------------------- a bad new session never replaces a good one
+
+
+def saved(cfg) -> dict:
+    return json.loads((cfg.state_dir / "cookies.json").read_text())
+
+
+def test_signed_out_cookie_does_not_replace_a_working_session(server, live, ais, tg, clock):
+    """2026-11-06: clicking the extension before signing in replaced the Pi's working session."""
+    before_cookies, before_state = saved(live), state(live)
+    tg.fake.messages.clear()
+    for _ in range(3):
+        status, data = api(server, "/api/cookie", {"cookie": "z" * 40, "user_agent": CHROME_156})
+        assert status == 200 and not data["ok"] and "keeps the session it has" in data["message"]
+    assert saved(live) == before_cookies and state(live) == before_state
+    assert tg.fake.messages == []  # nothing ended, nobody is told anything
+    clock.advance(hours=1)
+    _, res = run_check(live)
+    assert res.kind == "ok" and days_agents(ais)[-1] == live.user_agent  # the old one, as before
+
+
+def test_new_session_is_not_saved_over_a_working_one_when_the_check_fails(server, live, ais):
+    before = saved(live)
+    ais.fake.status = 500
+    status, data = api(server, "/api/cookie", {"cookie": FRESH})
+    assert data == {
+        "ok": False,
+        "message": "Not saved: the check failed (HTTP 500). The Pi keeps the session it has, which still works. "
+        "Try again later.",
+    }
+    assert saved(live) == before
+
+
+def test_new_session_is_saved_when_the_check_fails_but_the_old_one_had_ended(server, expired, ais):
+    ais.fake.status = 500  # can't tell yet; nothing to lose, later checks will tell
+    status, data = api(server, "/api/cookie", {"cookie": FRESH})
+    assert data["message"] == "Session saved, but the check failed: HTTP 500."
+    assert saved(expired)["_yatri_session"] == FRESH and state(expired)["session_expired_at"] is None
+
+
+def test_rejected_cookie_while_ended_changes_nothing(server, expired, tg):
+    before_cookies, before_state = saved(expired), state(expired)
+    tg.fake.messages.clear()
+    status, data = api(server, "/api/cookie", {"cookie": "z" * 40})
+    assert not data["ok"] and "keeps the session" not in data["message"]
+    assert saved(expired) == before_cookies and state(expired) == before_state and tg.fake.messages == []
+
+
+def test_set_cookie_keeps_a_working_session_too(live, capsys):
+    from slot_machine.cli import cmd_set_cookie
+
+    before = saved(live)
+    assert cmd_set_cookie(live, "z" * 40) == 1
+    out = capsys.readouterr().out
+    assert "Not saved: the site rejected that session" in out and "keeps the session it has" in out
+    assert saved(live) == before

@@ -79,8 +79,13 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' 
 [[ $code == 401 ]] || fail "renewal page accepted a wrong token ($code)"
 grep -q '"expired": false' <<<"$(curl -sS -H "Authorization: Bearer $renew_token" "http://127.0.0.1:$renew_port/api/status")" \
     || fail "session not active after renewal"
+reply=$(curl -sS -X POST -H "Authorization: Bearer $renew_token" -H 'Content-Type: application/json' \
+    -d '{"cookie": "signed-out-0000000000000000000000000000"}' "http://127.0.0.1:$renew_port/api/cookie")
+grep -q 'keeps the session it has' <<<"$reply" || fail "a rejected session replaced a working one: $reply"
+grep -q '"expired": false' <<<"$(curl -sS -H "Authorization: Bearer $renew_token" "http://127.0.0.1:$renew_port/api/status")" \
+    || fail "session not active after a rejected one was sent"
 kill "$serve_pid"; wait "$serve_pid" 2>/dev/null || true
-echo "ok   renewal page: new session accepted with its browser's User-Agent, wrong token refused"
+echo "ok   renewal page: new session accepted with its browser's User-Agent, wrong token refused, rejected one not saved"
 
 sm --status | sed 's/^/  /'
 messages

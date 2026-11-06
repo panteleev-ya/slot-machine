@@ -42,6 +42,18 @@ MAX_BODY = 16_384  # a _yatri_session is about 1 KB
 # --------------------------------------------------------------------------- the work
 
 
+KEPT = " The Pi keeps the session it has, which still works."
+
+
+def kept_instead(cfg: Config, submitted: dict) -> bool:
+    """After run_check: the submitted session was not saved, and the one the Pi kept still works."""
+    state = load_json(cfg.state_dir / "state.json", {})
+    current = load_json(cfg.state_dir / "cookies.json", {}).get("_yatri_session")
+    return (
+        bool(current) and current != submitted.get("_yatri_session") and not state.get("session_expired_at")
+    )
+
+
 def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None) -> tuple[int, dict]:
     """Save the cookie and run one check with the browser's User-Agent.
     Returns (HTTP status, {"ok", "message"})."""
@@ -54,6 +66,7 @@ def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None)
     if res is None:
         return 409, {"ok": False, "message": "A check is running right now. Send it again in a minute."}
     today = local(timeutil.utcnow(), cfg).date()
+    kept = KEPT if res.kind not in ("ok", "empty", "skipped") and kept_instead(cfg, cookies) else ""
     if res.kind == "ok":
         log(f"renew: new session from {via} works")
         return 200, {"ok": True, "message": f"Session saved. Earliest date: {fmt_day(res.dates[0], today)}"}
@@ -66,12 +79,17 @@ def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None)
         return 200, {
             "ok": False,
             "message": (
-                "The site didn't accept that session: it sent the Pi to the sign-in page. "
-                "Sign in in this browser until you see your appointment page, then send again."
+                "Not saved: the site treats that session as signed out. Sign in in this browser "
+                f"until you see your appointment page, then send again.{kept}"
             ),
         }
     if res.kind == "skipped":
         return 200, {"ok": False, "message": f"Session saved, but nothing was checked: {res.detail}."}
+    if kept:
+        return 200, {
+            "ok": False,
+            "message": f"Not saved: the check failed ({res.detail}).{kept} Try again later.",
+        }
     return 200, {"ok": False, "message": f"Session saved, but the check failed: {res.detail}."}
 
 

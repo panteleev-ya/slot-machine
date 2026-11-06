@@ -79,6 +79,8 @@ renewing quick, the Pi runs a small page on the home network and there's a Chrom
 2. Install the extension from `extension/` (see [extension/README.md](extension/README.md)) and paste
    the token in its options.
 3. When "session ended" arrives: sign in to the visa site in Chrome, click the extension. Done.
+   The Pi tries a new session before saving it, so sending one that doesn't work (not signed in
+   yet, say) never replaces one that does.
 
 To let someone else in `TELEGRAM_CHAT_ID` renew it too: `make share-extension` zips the extension
 into `dist/slot-machine-extension.zip` and puts the current token on the clipboard (nothing is
