@@ -26,8 +26,12 @@ extension that isn't from the Chrome Web Store.
 
 When the "session ended" message arrives:
 
-1. Sign in at <https://ais.usvisa-info.com/en-kz/niv/users/sign_in> (captcha and all).
-2. Click the extension → **Send session to the Pi**. It answers with the earliest date.
+1. Sign in at <https://ais.usvisa-info.com/en-kz/niv/users/sign_in> (captcha and all) and wait
+   for your appointment page. The site sets its cookie as soon as the sign-in page opens, so the
+   popup can't tell whether you're signed in yet.
+2. Click the extension → **Send session to the Pi**. It answers with the earliest date. It also
+   sends this browser's User-Agent: the site only accepts the session from the same browser
+   version, so the Pi checks with that one. A failed send doesn't alert the chats again.
 
 Don't sign out of the visa site afterwards: that ends the Pi's session too. Just close the tab.
 Everyone who got "session ended" gets "watch resumed" once it works again: if it has already

@@ -65,8 +65,19 @@ hints, and an `If-None-Match` with the ETag of the browser's cached copy.
 `sec-ch-ua*` hints. Those state a Chrome version and platform, so hardcoded values would contradict
 `USER_AGENT` after the next browser update. `Connection` is `close` (urllib's default); the request
 is made once an hour. If the site ever rejects the code but not curl, the client hints are the first
-difference to check. `USER_AGENT` in the settings should be the `navigator.userAgent` of the browser
-the cookie was copied from.
+difference to check.
+
+**The User-Agent must match the browser the session came from (2026-11-06, likely, not proven).**
+A second person signed in on her own Mac (Chrome 156) and her browser loaded `days/134.json` fine,
+but the same session sent from the Pi with `USER_AGENT` from the owner's Chrome 152 got `302` to
+the sign-in page within seconds, three times. The owner's own sessions, sent with a matching
+User-Agent, always worked. So the site appears to tie a session to the User-Agent it signed in
+with. Chrome's reduced User-Agent only carries the major version (`Chrome/156.0.0.0`) and always
+says `Mac OS X 10_15_7`, so a Chrome update is enough to break it. Since then the extension sends
+`navigator.userAgent` with the cookie (the renewal page uses the posting browser's header), the
+Pi stores it as `state["session_user_agent"]` and uses it for that session's checks; `USER_AGENT`
+in the settings is only used for sessions from `make set-cookie`. Confirmed once a session from a
+different Chrome version works through the extension.
 
 ## From community scripts (2022-2025, not verified here)
 

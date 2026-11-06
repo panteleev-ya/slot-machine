@@ -104,6 +104,18 @@ def cmd_test_telegram(cfg: Config) -> int:
     return 1 if failed else 0
 
 
+def _browser(ua: str) -> str:
+    """ "Chrome 156 on macOS" from a User-Agent, or the start of it."""
+    found = (re.search(rf"({b})/(\d+)", ua) for b in ("Edg", "OPR", "Chrome", "Firefox", "Version"))
+    name = next((m for m in found if m), None)  # Edge and Opera also say "Chrome/"
+    os_name = next((o for o in ("Mac OS X", "Windows", "Android", "iPhone", "Linux") if o in ua), None)
+    if not name:
+        return ua[:60]
+    label = {"Edg": "Edge", "OPR": "Opera", "Version": "Safari"}.get(name.group(1), name.group(1))
+    os_label = {"Mac OS X": "macOS", "iPhone": "iOS"}.get(os_name, os_name)
+    return f"{label} {name.group(2)}" + (f" on {os_label}" if os_label else "")
+
+
 def cmd_status(cfg: Config, config_path: Path) -> int:
     state = load_json(cfg.state_dir / "state.json", {})
     cookies = load_json(cfg.state_dir / "cookies.json", {})
@@ -115,6 +127,8 @@ def cmd_status(cfg: Config, config_path: Path) -> int:
     print(f"Last check: {fmt_clock(last, cfg) if last else 'never'}")
     cookie = "cookie saved" if cookies.get("_yatri_session") else "no cookie"
     print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
+    ua = state.get("session_user_agent")
+    print(f"Browser:    {_browser(ua) + ' (sent with the session)' if ua else 'USER_AGENT setting'}")
     pending = pending_welcomes(state, cfg)
     own = load_json(cfg.state_dir / bot.BOT_FILE, {}).get("alert_before", {})
 

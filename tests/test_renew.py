@@ -208,7 +208,10 @@ def test_api_when_the_site_rejects_the_session(server, live):
     status, data = api(server, "/api/cookie", {"cookie": "z" * 40})
     assert status == 200 and data == {
         "ok": False,
-        "message": "The site didn't accept that session. Sign in again, then send the new one.",
+        "message": (
+            "The site didn't accept that session: it sent the Pi to the sign-in page. "
+            "Sign in in this browser until you see your appointment page, then send again."
+        ),
     }
 
 
@@ -261,13 +264,16 @@ def test_pasting_on_the_page_renews_and_kills_the_link(server, expired, capsys):
     assert "nothing to renew right now" in page
 
 
-def test_page_after_a_rejected_session_offers_a_fresh_link(server, expired, clock):
+def test_page_after_a_rejected_session_keeps_the_link(server, expired, tg, clock):
     old = link_token(expired, state(expired))
-    clock.advance(minutes=3)  # you sign in again; the new expiry gets a new time
+    tg.fake.messages.clear()
+    clock.advance(minutes=3)
     status, _, page = form(server, t=old, cookie="z" * 40)
     assert "The site didn't accept that session" in html.unescape(page)
-    new = link_token(expired, state(expired))
-    assert new != old and f'name="t" value="{new}"' in page
+    assert link_token(expired, state(expired)) == old and f'name="t" value="{old}"' in page
+    assert tg.fake.messages == []  # no second "session ended" in the chats
+    status, _, page = form(server, t=old, cookie=FRESH)  # the alert's link still works
+    assert status == 200 and "Session saved" in html.unescape(page)
 
 
 def test_page_rejects_a_bad_cookie_and_keeps_the_form(server, expired):
@@ -446,3 +452,88 @@ def test_extension_asks_for_as_little_as_possible():
         assert (ROOT / "extension" / name).exists()
     popup = (ROOT / "extension" / "popup.js").read_text()
     assert "innerHTML" not in popup  # network text is only ever set as textContent
+
+
+# --------------------------------------------------------------------------- the browser's User-Agent
+
+CHROME_152 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+CHROME_156 = CHROME_152.replace("Chrome/152", "Chrome/156")
+
+
+def days_agents(ais) -> list[str]:
+    return [h.get("User-Agent") for _, path, h in ais.fake.requests if "/appointment/days/" in path]
+
+
+@pytest.fixture
+def tied(expired, ais):
+    """The settings' USER_AGENT is your Chrome 152; her session works only from her Chrome 156."""
+    expired.user_agent = CHROME_152
+    ais.fake.agents[FRESH] = CHROME_156
+    return expired
+
+
+def test_session_from_another_browser_version_fails_with_the_settings_user_agent(tied, ais):
+    _, res = run_check(tied, force=True, new_cookies={"_yatri_session": FRESH})
+    assert res.kind == "expired"  # what happened on 2026-11-06: the Pi sent Chrome 152
+    assert days_agents(ais)[-1] == CHROME_152
+
+
+def test_extension_sends_its_user_agent_and_the_pi_uses_it(server, tied, ais, clock):
+    status, data = api(server, "/api/cookie", {"cookie": FRESH, "user_agent": CHROME_156})
+    assert status == 200 and data["ok"], data
+    assert state(tied)["session_user_agent"] == CHROME_156
+    clock.advance(hours=1)
+    _, res = run_check(tied)  # later scheduled checks keep using it
+    assert res.kind == "ok" and days_agents(ais)[-2:] == [CHROME_156, CHROME_156]
+
+
+def test_older_extension_without_the_field_uses_the_request_header(server, tied, ais):
+    body = json.dumps({"cookie": FRESH}).encode()
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": CHROME_156,
+    }
+    status, _, text = call(server, "POST", "/api/cookie", body, headers)
+    assert status == 200 and json.loads(text)["ok"]
+    assert days_agents(ais)[-1] == CHROME_156
+
+
+def test_renewal_page_uses_the_browser_that_posted_the_form(server, tied, ais):
+    token = link_token(tied, state(tied))
+    body = urllib.parse.urlencode({"t": token, "cookie": FRESH}).encode()
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "User-Agent": CHROME_156}
+    status, _, page = call(server, "POST", "/renew", body, headers)
+    assert status == 200 and "Session saved" in html.unescape(page)
+
+
+@pytest.mark.parametrize("bad", ["x", "Mozilla\r\nX-Evil: 1", "M" * 600, 42, ["Chrome"]])
+def test_implausible_user_agents_fall_back_to_the_setting(server, live, ais, bad):
+    status, data = api(server, "/api/cookie", {"cookie": FRESH, "user_agent": bad})
+    assert status == 200 and data["ok"]
+    assert state(live)["session_user_agent"] is None and days_agents(ais)[-1] == live.user_agent
+
+
+def test_set_cookie_goes_back_to_the_setting(tied, ais):
+    run_check(tied, force=True, new_cookies={"_yatri_session": FRESH}, new_user_agent=CHROME_156)
+    assert state(tied)["session_user_agent"] == CHROME_156
+    ais.fake.sessions.add("g" * 40)
+    _, res = run_check(tied, force=True, new_cookies={"_yatri_session": "g" * 40})  # make set-cookie
+    assert res.kind == "ok" and state(tied)["session_user_agent"] is None
+    assert days_agents(ais)[-1] == CHROME_152
+
+
+def test_status_names_the_browser():
+    from slot_machine.cli import _browser
+
+    assert _browser(CHROME_156) == "Chrome 156 on macOS"
+    assert (
+        _browser("Mozilla/5.0 (Windows NT 10.0) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0")
+        == "Edge 150 on Windows"
+    )
+    assert _browser("SomeBot") == "SomeBot"
+
+
+def test_popup_sends_the_user_agent():
+    popup = (ROOT / "extension" / "popup.js").read_text()
+    assert "JSON.stringify({ cookie, user_agent: navigator.userAgent })" in popup

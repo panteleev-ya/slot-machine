@@ -55,6 +55,9 @@ class FakeAIS:
         self.status = 200  # forced status for days.json (403, 429, 500, ...)
         self.body: bytes | None = None  # raw body override for days.json
         self.rotate_cookie: str | None = None  # re-issue _yatri_session with this value
+        # session -> the User-Agent it was signed in with; such a session only works from that
+        # browser (the real site seems to do this). Sessions not listed work from anywhere.
+        self.agents: dict[str, str] = {}
         self.requests: list[tuple[str, str, dict]] = []
         self.lock = threading.Lock()
 
@@ -72,6 +75,8 @@ class FakeAIS:
                 self.rotate_cookie = cmd["rotate_cookie"]
             if cmd.get("add_session"):
                 self.sessions.add(cmd["add_session"])
+                if cmd.get("user_agent"):
+                    self.agents[cmd["add_session"]] = cmd["user_agent"]
 
     def days_requests(self) -> int:
         return sum(1 for _, path, _ in self.requests if "/appointment/days/" in path)
@@ -86,7 +91,10 @@ class FakeAIS:
             return send(h, 200, json.dumps({"count": self.days_requests()}).encode(), "application/json")
 
         cookies = parse_cookie_header(h.headers.get("Cookie", ""))
-        signed_in = cookies.get("_yatri_session") in self.sessions
+        sent = cookies.get("_yatri_session")
+        signed_in = sent in self.sessions and self.agents.get(
+            sent, h.headers.get("User-Agent")
+        ) == h.headers.get("User-Agent")
         base = f"/{self.locale}/niv"
         if re.fullmatch(
             rf"{base}/schedule/{self.schedule_id}/appointment/days/{self.facility_id}\.json", path
@@ -104,6 +112,8 @@ class FakeAIS:
             # unless a test asks for a new one), plus the ETag the browser would cache against
             session = self.rotate_cookie or cookies["_yatri_session"]
             self.sessions.add(session)
+            if sent in self.agents:
+                self.agents[session] = self.agents[sent]  # the re-issued session stays tied to it
             extra = {
                 "Set-Cookie": f"_yatri_session={session}; path=/; HttpOnly; Secure; SameSite=None",
                 "ETag": 'W/"0123456789abcdef"',

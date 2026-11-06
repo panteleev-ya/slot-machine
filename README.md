@@ -62,7 +62,9 @@ your copy: refreshing keeps only values.
    `AIS_FACILITY_ID`, open the Reschedule page with DevTools → Network open, pick Astana, and read
    the number in `.../appointment/days/<ID>.json` (or run `make discover` after step 3).
    While in the settings, check `TIMEZONE`, `DIGEST_HOUR`, `ALERT_ONLY_BEFORE`, and set
-   `USER_AGENT` to your browser's `navigator.userAgent`. Then `make push-config`.
+   `USER_AGENT` to your browser's `navigator.userAgent` (the site seems to reject a session sent
+   with another browser version; the Chrome extension sends its own, so this only matters for
+   `make set-cookie`). Then `make push-config`.
 3. **Session cookie.** DevTools → Application → Cookies → `ais.usvisa-info.com`, copy the value of
    `_yatri_session`, then `make set-cookie` and paste it (input is hidden). It runs one check and
    sends the first message.

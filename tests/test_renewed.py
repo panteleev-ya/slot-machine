@@ -2,6 +2,7 @@
 heard the session ended, so nobody else signs in for nothing."""
 
 import json
+from datetime import timedelta
 
 import pytest
 
@@ -118,7 +119,7 @@ def test_no_confirmation_if_the_alert_never_arrived(cfg, ais, tg, clock):
 def test_pause_counts_from_the_first_alert_after_a_failed_attempt(ended, ais, tg, clock):
     clock.advance(minutes=10)
     run_check(ended, force=True, new_cookies={"_yatri_session": "z" * 40})  # the site rejects it
-    assert lines(tg, OWNER) == ["<b>🔑 Visa slot watch paused - the AIS session ended</b>"]
+    assert tg.fake.messages == []  # everyone already knows it ended; the sender sees the answer
     clock.advance(minutes=20)
     run_check(ended, force=True, new_cookies=FRESH)
     msgs = resumed(tg)
@@ -152,12 +153,16 @@ def test_decision_logic():
         "renew_requested_at": T0.isoformat(),
         "welcomed_chats": [OWNER, FRIEND],
     }
-    assert [m.kind for m in process(dict(st), FetchResult("expired", detail="HTTP 302"), T0, cfg)] == [
+    later = T0 + timedelta(minutes=30)
+    still = dict(st)
+    # a rejected renewal: no second "session ended", and the original end time stays
+    assert process(still, FetchResult("expired", detail="HTTP 302"), later, cfg) == []
+    assert still["renew_requested_at"] == still["session_expired_at"] == T0.isoformat()
+    # without a renewal in progress, an expiry is announced as usual
+    fresh = {k: v for k, v in st.items() if k != "renew_requested_at"}
+    assert [m.kind for m in process(fresh, FetchResult("expired", detail="HTTP 302"), later, cfg)] == [
         "expired"
     ]
-    still = dict(st)
-    process(still, FetchResult("expired", detail="HTTP 302"), T0, cfg)
-    assert still["renew_requested_at"] == T0.isoformat()  # kept until a session works
     # state from before everyone was told: only the owner heard the session ended
     [m] = [m for m in process(dict(st), ok("2027-09-01"), T0, cfg) if m.kind == "renewed"]
     assert m.to == [OWNER] and m.rollback == {"renew_requested_at": T0.isoformat(), EXPIRY_TOLD: None}

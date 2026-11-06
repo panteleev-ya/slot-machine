@@ -66,9 +66,10 @@ async function init() {
     show("status", UNREACHABLE, "bad");
   }
   if (await sessionCookie()) {
-    show("cookie", "Signed in to the visa site in this browser: ready to send.", "muted");
+    // the site sets this cookie as soon as its sign-in page opens, so it doesn't prove you're signed in
+    show("cookie", "Visa-site cookie found. Send it once you're signed in and see your appointment page.", "muted");
   } else {
-    show("cookie", "Not signed in to the visa site in this browser yet.", "bad");
+    show("cookie", "No visa-site cookie in this browser yet: sign in first.", "bad");
     $("send").disabled = true;
   }
 }
@@ -85,7 +86,8 @@ async function send() {
     const r = await callPi("/api/cookie", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cookie }),
+      // the site only accepts the session from the same browser version, so the Pi copies this one
+      body: JSON.stringify({ cookie, user_agent: navigator.userAgent }),
     });
     show("result", r.message || `The Pi answered HTTP ${r.status}.`, r.ok ? "ok" : "bad");
   } catch {

@@ -2,7 +2,7 @@
 _yatri_session and runs one check with it, like `make set-cookie`.
 
 Two ways in, both write-only (nothing here ever returns a cookie):
-  POST /api/cookie   JSON {"cookie": ...}, header "Authorization: Bearer RENEW_TOKEN".
+  POST /api/cookie   JSON {"cookie": ..., "user_agent": ...}, header "Authorization: Bearer RENEW_TOKEN".
                      Used by the Chrome extension (extension/).
   GET  /?t=TOKEN     a page with a paste box; TOKEN comes from the "session ended" alert
   POST /renew        and only works until that session is renewed (renew_link.py).
@@ -10,6 +10,10 @@ Two ways in, both write-only (nothing here ever returns a cookie):
 
 Cron starts `slot-machine --serve` every minute; if a server is already running, the
 new one exits at once, so cron doubles as a watchdog. Plain http: home network only.
+
+The session's checks use the User-Agent of the browser that sent it (the extension's
+"user_agent", else the request's own User-Agent header): the site rejects a session
+sent from another browser version.
 """
 
 from __future__ import annotations
@@ -38,13 +42,15 @@ MAX_BODY = 16_384  # a _yatri_session is about 1 KB
 # --------------------------------------------------------------------------- the work
 
 
-def apply_cookie(cfg: Config, raw: str, via: str) -> tuple[int, dict]:
-    """Save the cookie and run one check. Returns (HTTP status, {"ok", "message"})."""
+def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None) -> tuple[int, dict]:
+    """Save the cookie and run one check with the browser's User-Agent.
+    Returns (HTTP status, {"ok", "message"})."""
     try:
         cookies = ais.parse_cookie_input(raw or "")
     except ValueError as e:
         return 400, {"ok": False, "message": f"Not saved: {e}."}
-    _, res = run_check(cfg, force=True, new_cookies=cookies, via=via)
+    ua = ais.clean_user_agent(user_agent)
+    _, res = run_check(cfg, force=True, new_cookies=cookies, via=via, new_user_agent=ua)
     if res is None:
         return 409, {"ok": False, "message": "A check is running right now. Send it again in a minute."}
     today = local(timeutil.utcnow(), cfg).date()
@@ -59,7 +65,10 @@ def apply_cookie(cfg: Config, raw: str, via: str) -> tuple[int, dict]:
     if res.kind == "expired":
         return 200, {
             "ok": False,
-            "message": "The site didn't accept that session. Sign in again, then send the new one.",
+            "message": (
+                "The site didn't accept that session: it sent the Pi to the sign-in page. "
+                "Sign in in this browser until you see your appointment page, then send again."
+            ),
         }
     if res.kind == "skipped":
         return 200, {"ok": False, "message": f"Session saved, but nothing was checked: {res.detail}."}
@@ -223,10 +232,12 @@ class Handler(BaseHTTPRequestHandler):
                     401, {"ok": False, "message": "Wrong or missing token (extension options)."}
                 )
             try:
-                raw = json.loads(body or b"{}").get("cookie", "")
+                data = json.loads(body or b"{}")
+                raw, ua = data.get("cookie", ""), data.get("user_agent")
             except (ValueError, AttributeError):
                 return self._json(400, {"ok": False, "message": 'Send JSON like {"cookie": "..."}.'})
-            status_code, result = apply_cookie(self.cfg, str(raw), via="extension")
+            ua = ua or self.headers.get("User-Agent")
+            status_code, result = apply_cookie(self.cfg, str(raw), via="extension", user_agent=ua)
             return self._json(status_code, result)
         if path == "/renew":
             form = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
@@ -235,7 +246,12 @@ class Handler(BaseHTTPRequestHandler):
             if not link_token_ok(self.cfg, state, token):
                 result = {"ok": False, "message": "This link has expired. Use the one in the latest message."}
                 return self._page(403, None, result)
-            status_code, result = apply_cookie(self.cfg, form.get("cookie", [""])[0], via="renew-page")
+            status_code, result = apply_cookie(
+                self.cfg,
+                form.get("cookie", [""])[0],
+                via="renew-page",
+                user_agent=self.headers.get("User-Agent"),
+            )
             # if it didn't work and the session is still ended, offer the form again with the new link token
             fresh = link_token(self.cfg, load_json(self.cfg.state_dir / "state.json", {}))
             return self._page(status_code, fresh, result)

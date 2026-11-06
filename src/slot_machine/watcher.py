@@ -162,6 +162,12 @@ def process(
             state.update(baseline_sent=True, last_digest_date=today.isoformat(), last_digest_earliest=None)
             state["welcomed_chats"] = list(cfg.chat_ids)
 
+    elif res.kind == "expired" and state.get("renew_requested_at"):
+        # a renewal attempt the site rejected: the chats already know the session ended, and
+        # whoever sent it sees the answer, so stay quiet. Keep the original end time, so the
+        # renewal link in that alert still works.
+        state["session_expired_at"] = state["renew_requested_at"]
+
     elif res.kind == "expired":
         state["session_expired_at"] = iso(now)
         msgs.append(

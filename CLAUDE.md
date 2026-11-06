@@ -54,6 +54,14 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `renew_requested_at` (first expiry); the next ok/empty check sends `renewed` to the told chats still
   listed and clears both (rolled back if it reached nobody). `/renew` answers any listed chat.
   `make share-extension` zips `extension/` and copies the current token (`renew_token.py --copy`).
+  A renewal the site rejects (expired while `renew_requested_at` is set) sends no new "session ended"
+  and puts `session_expired_at` back to the first expiry, so the alert's link keeps working.
+- Session User-Agent: the site appears to reject a session sent with another browser version
+  (docs/ais-notes.md). The extension sends `user_agent` (else the request's header is used; the
+  renewal page uses the form post's header); `run_check(new_user_agent=...)` stores it as
+  `state["session_user_agent"]` (None from `make set-cookie` = the USER_AGENT setting) and
+  `runner.session_cfg()` uses it for every check of that session. `tests/fakes.py` can tie a session
+  to a User-Agent (`FakeAIS.agents`).
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow
@@ -80,6 +88,7 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `~/.local/state/slot-machine/`, crontab line marked `# slot-machine (managed by deploy.sh)`.
 
 ## Open questions
-- How long a `_yatri_session` survives hourly use (first "session ended" alert will tell).
-- Whether AIS answers the Pi's requests at all: a bare unauthenticated request from the Pi got
-  HTTP 403. Only the user's first `make set-cookie` will show it.
+- Whether the site really ties a session to its User-Agent (likely; see docs/ais-notes.md). The
+  next renewal from a browser whose Chrome version differs from USER_AGENT will tell.
+- Settled: sessions last about 1 h from sign-in whatever the Pi does; AIS answers the Pi fine once
+  it has a session (only a bare request without one got 403).

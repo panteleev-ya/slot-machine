@@ -70,16 +70,17 @@ echo "ok   state files are chmod 600"
 # the renewal page: what the Chrome extension does after you sign in again
 "$app" --config "$tmp/test.env" --serve & serve_pid=$!
 for _ in $(seq 50); do curl -fsS -o /dev/null "http://127.0.0.1:$renew_port/" 2>/dev/null && break; sleep 0.1; done
-control "$ais" "{\"add_session\": \"$session\"}"
+# the fake site only accepts this session from the browser it "signed in" with, like the real one
+control "$ais" "{\"add_session\": \"$session\", \"user_agent\": \"SmokeBrowser/1.0 (fake)\"}"
 reply=$(curl -sS -X POST -H "Authorization: Bearer $renew_token" -H 'Content-Type: application/json' \
-    -d "{\"cookie\": \"$session\"}" "http://127.0.0.1:$renew_port/api/cookie")
+    -d "{\"cookie\": \"$session\", \"user_agent\": \"SmokeBrowser/1.0 (fake)\"}" "http://127.0.0.1:$renew_port/api/cookie")
 grep -q '"ok": true' <<<"$reply" || fail "renewal page said: $reply"
 code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "http://127.0.0.1:$renew_port/api/status")
 [[ $code == 401 ]] || fail "renewal page accepted a wrong token ($code)"
 grep -q '"expired": false' <<<"$(curl -sS -H "Authorization: Bearer $renew_token" "http://127.0.0.1:$renew_port/api/status")" \
     || fail "session not active after renewal"
 kill "$serve_pid"; wait "$serve_pid" 2>/dev/null || true
-echo "ok   renewal page: new session accepted, wrong token refused"
+echo "ok   renewal page: new session accepted with its browser's User-Agent, wrong token refused"
 
 sm --status | sed 's/^/  /'
 messages

@@ -98,12 +98,24 @@ def days_referer(cfg: Config) -> str:
     return f"{cfg.appointment_url}?confirmed_limit_message=1&amp;commit=Continue"
 
 
+def clean_user_agent(value) -> str | None:
+    """A browser's User-Agent as sent with a new session, or None if it isn't a plausible one
+    (it goes into a request header, so printable ASCII only, and not absurdly long)."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not 10 <= len(value) <= 512 or not all(" " <= ch <= "~" for ch in value):
+        return None
+    return value
+
+
 def ais_headers(cfg: Config, cookies: dict, json_api: bool = True) -> dict:
     """Headers of the request the Reschedule page itself makes (docs/ais-notes.md).
 
     Only what describes this kind of request: a same-site background fetch of JSON.
     Version-specific client hints (sec-ch-ua*) are left out because they would go
-    stale against USER_AGENT; _yatri_session is the only cookie the site needs.
+    stale against the User-Agent; _yatri_session is the only cookie the site needs.
+    cfg.user_agent is the browser the session came from (runner.session_cfg).
     """
     headers = {
         "User-Agent": cfg.user_agent,
