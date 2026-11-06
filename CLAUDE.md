@@ -20,6 +20,10 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 - `deploy/build.py`: builds `dist/slot-machine` (zipapp with its own `__main__.py`, because
   zipapp's generated entry point drops the exit code). `deploy/deploy.sh`: install on the Pi,
   cron on/off. `deploy/smoke-pi.sh`: run the installed app on the Pi against the fakes.
+- `src/signin/`: Chrome sign-in that posts a fresh session to the Pi's renewal page. Not in the
+  zipapp. `python -m signin` (Mac Chrome, or Linux Chrome on a virtual screen). `src/signin/docker/run.sh`
+  is the container. Credentials are `config/ais-login.env` (git-ignored, chmod 600). Don't read or
+  print it, and don't read or print `config/slot-machine.env`.
 - `config/slot-machine.env.example`: settings template (committed; a test keeps it in sync with
   `ENV_KEYS`). New settings and their comments go here. `config/slot-machine.env` is the user's
   filled copy: git-ignored, chmod 600, holds the bot token. Don't read or print it.

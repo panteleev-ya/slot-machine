@@ -1,0 +1,13 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+dist
+build
+**/__pycache__
+**/*.pyc
+config/slot-machine.env
+config/ais-login.env
+src/signin/shots
+*.log
+.DS_Store
