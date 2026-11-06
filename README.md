@@ -4,7 +4,8 @@ Watches the earliest open appointment date for a US tourist (B1/B2) visa at the
 U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
 
 - **Alert with sound** as soon as a date opens that is sooner than at the previous check
-  (optionally only before `ALERT_ONLY_BEFORE`).
+  (optionally only before `ALERT_ONLY_BEFORE`, your current appointment). With a cutoff set, the
+  alert says how many days before that appointment the new date is.
 - **Quiet daily summary** at `DIGEST_HOUR`: earliest date, change since yesterday, best date
   seen in between, number of checks, session health. If it stops arriving, something broke.
 - **Session ended** when the site logs the session out, then **watch resumed** once someone renewed it

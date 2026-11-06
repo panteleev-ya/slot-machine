@@ -130,9 +130,15 @@ def process(
             # "Sooner" means sooner than at the previous good check, so a slot that
             # vanishes and comes back alerts again - each reappearance is a new chance.
             # Each chat hears about it only if it also beats that chat's cutoff.
-            to = [c for c in cfg.chat_ids if earliest < (alert_cutoff(cfg, alert_before, c) or "9999-12-31")]
-            if to:
-                text = messages.text_sooner(cfg, earliest, prev, today)
+            # The text compares the date with that chat's cutoff (its current appointment), so
+            # chats with the same cutoff share one message.
+            by_cutoff: dict[str, list[str]] = {}
+            for c in cfg.chat_ids:
+                cutoff = alert_cutoff(cfg, alert_before, c)
+                if earliest < (cutoff or "9999-12-31"):
+                    by_cutoff.setdefault(cutoff, []).append(c)
+            for cutoff, to in by_cutoff.items():
+                text = messages.text_sooner(cfg, earliest, prev, today, cutoff)
                 msgs.append(Msg("sooner", text, rollback={"last_seen": prev}, to=to))
         best = state.get("best_since_digest")
         if not best or earliest < best["date"]:

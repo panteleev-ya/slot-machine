@@ -56,8 +56,33 @@ def test_each_chat_gets_only_dates_before_its_own_cutoff():
     cutoffs = {FRIEND: "2027-08-15"}
     [m] = process(state, ok("2027-08-20"), T0, cfg, cutoffs)
     assert m.kind == "sooner" and m.to == [OWNER]  # Aug 20 isn't before the friend's Aug 15
-    [m] = process(state, ok("2027-08-10"), T0, cfg, cutoffs)
-    assert m.to == [OWNER, FRIEND]
+    [mine, theirs] = process(state, ok("2027-08-10"), T0, cfg, cutoffs)
+    assert (mine.to, theirs.to) == ([OWNER], [FRIEND])  # each compared with its own cutoff
+    assert "before your current appointment" not in mine.text  # the owner has none: vs the last check
+    assert "5 days before your current appointment, Sun Aug 15, 2027." in theirs.text
+
+
+def test_alert_compares_with_the_appointment_not_the_previous_check():
+    """2026-11-06: "Was Aug 22, 2028 at the previous check: 97 days sooner" said little; what
+    matters is how much sooner than the appointment you already have."""
+    cfg = make_cfg(chat_id=f"{OWNER},{FRIEND}", alert_only_before="2028-05-24")
+    state = started(cfg)
+    state["last_seen"] = "2028-08-22"
+    [m] = process(state, ok("2028-05-17"), T0, cfg)
+    assert m.to == [OWNER, FRIEND]  # same cutoff: one message for both
+    assert m.text.splitlines()[1:3] == [
+        "Earliest: Wed May 17, 2028 (in 559 days)",
+        "7 days before your current appointment, Wed May 24, 2028.",
+    ]
+    assert "previous check" not in m.text
+
+
+def test_chats_with_the_same_cutoff_share_one_alert():
+    cfg = make_cfg(chat_id=f"{OWNER},{FRIEND},99", alert_only_before="2027-09-01")
+    state = started(cfg)
+    msgs = process(state, ok("2027-08-10"), T0, cfg, {"99": "2027-08-20"})
+    assert [m.to for m in msgs] == [[OWNER, FRIEND], ["99"]]
+    assert "22 days before" in msgs[0].text and "10 days before" in msgs[1].text
 
 
 def test_settings_default_applies_until_a_chat_sets_its_own():

@@ -63,6 +63,12 @@ def fmt_day(iso_date: str, today: date) -> str:
     return f"{DOW[d.weekday()]} {MON[d.month - 1]} {d.day}, {d.year} ({away})"
 
 
+def fmt_date(iso_date: str) -> str:
+    """ "Wed May 24, 2028": fmt_day without the countdown."""
+    d = date.fromisoformat(iso_date)
+    return f"{DOW[d.weekday()]} {fmt_short(iso_date)}"
+
+
 def fmt_short(iso_date: str) -> str:
     d = date.fromisoformat(iso_date)
     return f"{MON[d.month - 1]} {d.day}, {d.year}"

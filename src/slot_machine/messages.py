@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 
 from .config import Config
 from .renew_link import renew_link
-from .timeutil import days_between, fmt_clock, fmt_day, fmt_dur, fmt_short, parse_ts, plural
+from .timeutil import days_between, fmt_clock, fmt_date, fmt_day, fmt_dur, fmt_short, parse_ts, plural
 
 
 def esc(value) -> str:
@@ -61,12 +61,16 @@ def text_welcome(cfg: Config, state: dict, cur: str | None, now: datetime, today
     )
 
 
-def text_sooner(cfg: Config, earliest: str, prev: str | None, today: date) -> str:
-    if prev:
-        title = "Sooner visa date opened"
+def text_sooner(cfg: Config, earliest: str, prev: str | None, today: date, cutoff: str = "") -> str:
+    """`cutoff` is the chat's alert-before date, its current appointment: the date compared
+    against. Without one, the comparison is with the previous check."""
+    title = "Sooner visa date opened" if prev else "Visa dates available again"
+    if cutoff:
+        gain = plural(days_between(earliest, cutoff), "day")
+        change = f"{gain} before your current appointment, {fmt_date(cutoff)}."
+    elif prev:
         change = f"Was {fmt_short(prev)} at the previous check: {plural(days_between(earliest, prev), 'day')} sooner."
     else:
-        title = "Visa dates available again"
         change = "Earlier checks found no dates at all."
     return "\n".join(
         [
