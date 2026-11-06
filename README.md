@@ -92,6 +92,51 @@ The alert also links to the page (valid only until that session is renewed), whe
 cookie by hand; `/renew` in Telegram sends the current link to any listed chat. The page is plain http and
 for the home network only: never forward its port. It only accepts a session, never shows one.
 
+## Signing in from Chrome
+
+The Pi never logs in. A session lasts about an hour from sign-in, so a browser has to sign in
+again and hand the cookie over. `src/signin` does that and nothing else: it signs in, follows
+Continue, and POSTs `_yatri_session` plus that Chrome's User-Agent to the renewal page, the same
+request the extension sends. It does not book, cancel, or reschedule. It is not part of the
+zipapp on the Pi.
+
+Two files, both git-ignored and chmod 600:
+
+| File | What |
+|---|---|
+| `config/ais-login.env` | `AIS_EMAIL` and `AIS_PASSWORD`. Start from `config/ais-login.env.example`. |
+| `config/slot-machine.env` | `RENEW_URL` and `RENEW_TOKEN`, the same values the extension uses. |
+
+On the Mac, in the Chrome you already use. Turn on View → Developer → Allow JavaScript from Apple Events first.
+
+```bash
+PYTHONPATH=src python3 -m signin --init          # creates config/ais-login.env if it is missing
+PYTHONPATH=src python3 -m signin                  # every 12 minutes
+PYTHONPATH=src python3 -m signin --every 50 --jitter 3
+```
+
+`make signin` is the 12-minute loop. The first cycle uses the Chrome session already open. Later
+cycles sign out and sign in, so the Pi receives a new session. Ctrl+C leaves that Chrome window up.
+The first run asks macOS to control Chrome and to read the "Chrome Safe Storage" keychain item
+(the cookie is HttpOnly). Allow both.
+
+The same package runs on Linux against real Google Chrome on a virtual screen, which is the
+stand-in for a mini-PC with no monitor. It is not Chrome's headless mode.
+
+```bash
+src/signin/docker/run.sh --check                  # prove Chrome looks like a normal window
+src/signin/docker/run.sh --every 50 --jitter 3    # renew until Ctrl+C
+src/signin/docker/run.sh --once                   # one cycle, then exit
+```
+
+`--every` is the gap in minutes. `--jitter` adds a random amount between minus and plus that many
+minutes, and it has to be smaller than `--every`. A failed cycle waits 2 minutes. The browser
+profile is kept between Docker runs. If a cycle fails, the window is saved to
+`src/signin/shots/last.png`.
+
+Fifty minutes, plus or minus three, is the overnight pace: a session dies about an hour after
+sign-in. Twelve minutes is only for a short test.
+
 Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it
 skips the interval and any throttle pause, so use it sparingly). After a "session ended" alert: sign in
 again, `make set-cookie`.
@@ -123,7 +168,9 @@ tests/          fakes.py (fake site + bot API), one test file per module, test_z
 deploy/         build.py (zipapp), deploy.sh, smoke-pi.sh, sync_config.py (template -> your copy),
                 renew_token.py (make renew-token)
 extension/      the Chrome extension that sends a fresh session to the renewal page
-config/         slot-machine.env.example (committed), slot-machine.env (yours, git-ignored)
+src/signin/     Chrome sign-in (python -m signin); docker/run.sh runs it on Linux
+config/         slot-machine.env.example and ais-login.env.example (committed);
+                slot-machine.env and ais-login.env (yours, git-ignored)
 ```
 
 Tests and the smoke run only ever talk to the fake servers.
@@ -134,8 +181,9 @@ Tests and the smoke run only ever talk to the fake servers.
   This stays read-only and slow (one request an hour, 30-minute floor, 3-hour pause after an empty
   answer or HTTP 403/429), but the risk to the account is real and yours.
 - **Throttling:** users report empty answers after about 48 requests, lifting after about 5 hours.
-- **Session length is unknown.** The first "session ended" alert says how long it lasted. If it's
-  under an hour, a shorter cron interval might keep it alive, at the cost of more requests.
+- **Sessions last about an hour from sign-in**, whatever the Pi does with them. Renew from Chrome
+  (`python -m signin` or `src/signin/docker/run.sh`) before that hour is up. The hourly check on
+  the Pi does not keep the session alive.
 - **Hourly is too slow to catch individual cancellations**; it shows the trend and new batches.
 - **The cookie is a login** to an account holding passport and DS-160 data. It lives only on the
   Pi, chmod 600; Telegram messages contain only dates.

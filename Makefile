@@ -10,7 +10,7 @@ LOG     := .local/state/slot-machine/watch.log
 
 .PHONY: help dev test lint fmt build clean deploy cron-on cron-off smoke-pi status logs \
         config edit-config push-config find-chat-id test-telegram set-cookie discover check-now renew-token \
-        share-extension
+        share-extension signin signin-linux-check
 
 help:
 	@echo "On the Mac:"
@@ -32,6 +32,8 @@ help:
 	@echo "  make renew-token    set up the renewal page's secret (copied for the Chrome extension)"
 	@echo "  make share-extension  zip the Chrome extension for someone else, current token on the clipboard"
 	@echo "  make status         / make logs"
+	@echo "  make signin            Mac Chrome signs in and renews the Pi session"
+	@echo "  make signin-linux-check  Linux Chrome in Docker, without opening the visa site"
 
 $(VENV)/bin/pytest: requirements-dev.txt
 	$(PYTHON) -m venv $(VENV)
@@ -107,6 +109,16 @@ check-now:
 renew-token: config
 	@$(PYTHON) deploy/renew_token.py
 	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
+
+# Mac Chrome. Signs in and posts the session. Ctrl+C stops it. Options go on the python
+# command: PYTHONPATH=src python3 -m signin --every 50 --jitter 3
+signin:
+	PYTHONPATH=src $(PYTHON) -m signin
+
+# Real Google Chrome on a virtual screen, the mini-PC stand-in.
+# Does not open the visa site. A real cycle is: src/signin/docker/run.sh --every 50 --jitter 3
+signin-linux-check:
+	src/signin/docker/run.sh --check
 
 # The Chrome extension for another person in TELEGRAM_CHAT_ID: a zip to send them (AirDrop), and the
 # current RENEW_TOKEN on the clipboard for its options. Nothing is rotated or pushed.

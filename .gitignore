@@ -15,3 +15,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+
+# failure screenshots from the Linux Chrome sign-in; the page can show the sign-in form
+src/signin/shots/
