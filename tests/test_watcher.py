@@ -139,9 +139,9 @@ def test_error_alert_text():
     state, cfg = started()
     msgs = []
     for i in range(3):
-        msgs = process(state, FetchResult("error", detail="HTTP 502"), T0 + timedelta(hours=i + 1), cfg)
+        msgs = process(state, FetchResult("error", detail="HTTP 500"), T0 + timedelta(hours=i + 1), cfg)
     assert "3 checks in a row failed" in msgs[0].text
-    assert "Last error: HTTP 502" in msgs[0].text
+    assert "Last error: HTTP 500" in msgs[0].text
 
 
 def test_throttled_backs_off_and_counts_as_failure():

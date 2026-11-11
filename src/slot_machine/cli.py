@@ -12,7 +12,7 @@ from pathlib import Path
 from . import __version__, ais, bot, renew, telegram, timeutil
 from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
 from .messages import session_line
-from .runner import run_check
+from .runner import run_check, run_ping
 from .store import load_json
 from .timeutil import fmt_clock, fmt_day, local, parse_ts
 from .watcher import alert_cutoff, current_earliest, pending_welcomes
@@ -148,6 +148,13 @@ def cmd_status(cfg: Config, config_path: Path) -> int:
     print(f"Chats:      {chats}" + (f"; welcome on the next check: {', '.join(pending)}" if pending else ""))
     if state.get("consecutive_errors"):
         print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
+    site = state.get("site")
+    if site:
+        since, ping = parse_ts(site["since"]), parse_ts(site.get("next_ping"))
+        print(
+            f"Visa site:  {site['state']} since {fmt_clock(since, cfg)}, {site.get('pings', 0)} ping(s) "
+            f"unanswered, next {fmt_clock(ping, cfg) if ping else 'now'}; last: {site.get('last_error')}"
+        )
     if cfg.renew_url:
         print(f"Renew page: {cfg.renew_url} ({'listening' if _listening(cfg) else 'not running'})")
     print(f"Settings:   {config_path}{'' if config_path.exists() else ' (missing)'}")
@@ -196,6 +203,11 @@ def main(argv=None) -> int:
         "--serve", action="store_true", help="run the renewal page (RENEW_URL) until killed; cron starts it"
     )
     mode.add_argument(
+        "--ping",
+        action="store_true",
+        help="while the visa site looks down, ping its home page if a ping is due; cron runs it every minute",
+    )
+    mode.add_argument(
         "--poll-telegram",
         nargs="?",
         const=55.0,
@@ -226,4 +238,6 @@ def main(argv=None) -> int:
         return bot.poll(cfg, args.poll_telegram)
     if args.serve:
         return renew.serve(cfg)
+    if args.ping:
+        return run_ping(cfg, via=args.via)
     return run_check(cfg, force=args.force, dry_run=args.dry_run, via=args.via)[0]

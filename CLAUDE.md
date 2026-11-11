@@ -50,6 +50,8 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   lock `.renew.lock` is held, so cron is the watchdog). Single-threaded stdlib HTTPServer, dual-stack.
   Write-only: `/api/cookie` (Bearer RENEW_TOKEN, used by `extension/`) and `/renew` (form, link token
   from `renew_link.py` = HMAC(RENEW_TOKEN, session_expired_at), dead once the session is renewed).
+  `/api/status` (Bearer) only reads: the session line and earliest date, for the extension's popup;
+  the sign-in loops call it to see that the Pi answers before they sign in.
   Never log request lines (tokens in the query) and never return a cookie. `deploy.sh` kills the
   server on deploy/push-config (pattern `slot-machin[e] --serve` so pkill can't match its own shell).
 - `extension/`: MV3, no build. Only `cookies` + `storage`, hosts ais.usvisa-info.com and yarikos.local;
@@ -71,6 +73,21 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `state["session_user_agent"]` (None from `make set-cookie` = the USER_AGENT setting) and
   `runner.session_cfg()` uses it for every check of that session. `tests/fakes.py` can tie a session
   to a User-Agent (`FakeAIS.agents`).
+- Site down: `sitewatch.py` is the state machine both the Pi and `src/signin` use (signin imports
+  it; the Docker image copies `src/slot_machine`). An "actual" request (date check, sign-in) failing
+  like a down site (Pi: `ais` kind `down` = network errors, HTTP 502/503/504; 500 stays `error`.
+  Sign-in: `SiteUnreachable` = navigation error, Chrome error page, 5xx, sign-in form never showed)
+  starts `checking`: no actual requests, a ping (GET `/en-kz/niv`, no cookie, no redirects; any
+  answer but 502-504 counts) at once and every `PING_EVERY` (3 min); `CONFIRM_PINGS` (3) unanswered =
+  `down`; the first answer = up (no record). Pi: the record is `state["site"]` (+ `told`). Pings run
+  from the every-minute `slot-machine --ping` cron line (returns at once unless one is due) and from
+  check runs, which ping instead of checking; `force` checks anyway, Telegram `/check` doesn't.
+  `down`/`up` go to the owner only; `up` only after a `down` (a reached-nobody `up` waits in
+  `site_up_unsent`). Down results don't touch `consecutive_errors`. Pings while it stays down log nothing.
+- Sign-in loops (`signin/mac.py` main, `signin/linux.py` run_loop) both run `mac.renew_loop`: the
+  sitewatch rules above (in memory; a recovery signs in at once), other failed cycles wait 2, 4,
+  8 ... 60 min, and before each sign-in `wait_for_pi()` needs `/api/status` to answer (polls every
+  5 min; a 401 stops the loop).
 - Log lines end with `[via]`: cron, check-now, set-cookie, telegram:<chat>, manual.
 
 ## Workflow

@@ -16,6 +16,7 @@ LOCAL_CONFIG=${LOCAL_CONFIG:-$ROOT/config/slot-machine.env}
 MARK="# slot-machine (managed by deploy.sh)"
 BOT_MARK="# slot-machine telegram (managed by deploy.sh)"  # the /check poller
 SERVE_MARK="# slot-machine renew (managed by deploy.sh)"  # the renewal page; exits if already running
+PING_MARK="# slot-machine ping (managed by deploy.sh)"  # pings the visa site while it looks down
 
 ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
 
@@ -75,19 +76,20 @@ log=\$HOME/.local/state/slot-machine/watch.log
 check="$schedule \$app --via cron >> \$log 2>&1 $MARK"
 poll="* * * * * \$app --poll-telegram >> \$log 2>&1 $BOT_MARK"
 serve="* * * * * \$app --serve >> \$log 2>&1 $SERVE_MARK"
-(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' || true
- echo "\$check"; echo "\$poll"; echo "\$serve") | crontab -
-echo "cron:     on (checks on CRON_SCHEDULE; Telegram commands and the renewal page every minute)"
-crontab -l | grep -F -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK'
+ping="* * * * * \$app --ping --via cron >> \$log 2>&1 $PING_MARK"
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' -e '$PING_MARK' || true
+ echo "\$check"; echo "\$poll"; echo "\$serve"; echo "\$ping") | crontab -
+echo "cron:     on (checks on CRON_SCHEDULE; Telegram commands, renewal page and site pings every minute)"
+crontab -l | grep -F -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' -e '$PING_MARK'
 EOF
 }
 
 cron_off() {
     ssh_pi bash -s <<EOF
 set -e
-(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' || true) | crontab -
+(crontab -l 2>/dev/null | grep -vF -e '$MARK' -e '$BOT_MARK' -e '$SERVE_MARK' -e '$PING_MARK' || true) | crontab -
 pkill -u \$(id -u) -f 'slot-machin[e] --serve' || true
-echo "cron:     off (checks, Telegram commands, renewal page)"
+echo "cron:     off (checks, Telegram commands, renewal page, site pings)"
 EOF
 }
 

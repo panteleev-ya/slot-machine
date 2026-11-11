@@ -79,6 +79,12 @@ def test_server_error_is_error():
     assert (res.kind, res.detail) == ("error", "HTTP 500")
 
 
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_gateway_errors_mean_the_site_is_down(status):
+    res = classify(status, headers(), b"<html>502 Bad Gateway</html>", JAR)
+    assert (res.kind, res.detail) == ("down", f"HTTP {status}")
+
+
 def test_sign_in_page_instead_of_json_is_expired():
     assert classify(200, headers(), SIGN_IN_PAGE.encode(), JAR).kind == "expired"
 
@@ -209,8 +215,8 @@ def test_fetch_picks_up_rotated_cookie(cfg, ais):
     assert fetch_dates(cfg, JAR).cookies == {"_yatri_session": "r" * 40}
 
 
-def test_fetch_network_failure_is_error(cfg):
+def test_fetch_network_failure_means_the_site_is_down(cfg):
     cfg.ais_base = "http://127.0.0.1:9"  # nothing listens on the discard port
     res = fetch_dates(cfg, JAR)
-    assert res.kind == "error"
+    assert res.kind == "down"
     assert res.detail.startswith("network:")

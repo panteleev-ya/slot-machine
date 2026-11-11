@@ -8,7 +8,7 @@ import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from . import messages
+from . import messages, sitewatch
 from .ais import FetchResult
 from .config import Config
 from .timeutil import iso, local, parse_ts
@@ -19,14 +19,15 @@ EMPTY_IS_REAL_AFTER = timedelta(hours=24)
 
 @dataclass
 class Msg:
-    kind: str  # baseline | welcome | sooner | expired | renewed | error | digest
+    kind: str  # baseline | welcome | sooner | expired | renewed | error | down | up | digest
     text: str
     silent: bool = False
     rollback: dict = field(default_factory=dict)  # state to restore if it reached nobody
     to: list[str] | None = None  # chat ids; None = every configured chat
 
 
-# "error" goes to the owner (first chat) only: fixing it needs the Mac or the Pi. Everything else
+# "error", "down" and "up" go to the owner (first chat) only: fixing it needs the Mac or the Pi,
+# and an outage is the owner's to know about. Everything else
 # goes to every chat, "session ended" included, since anyone listed can renew the session; "watch
 # resumed" goes to the chats that heard it ended. Kinds that count as a chat's welcome: a chat
 # they didn't reach gets a welcome later.
@@ -85,6 +86,36 @@ def current_earliest(state: dict) -> str | None:
     return state["last_seen"]
 
 
+# --------------------------------------------------------------------------- site up or down
+# state["site"] is the sitewatch record while the site looks down ("checking", "down"), plus
+# "told": the owner got the "down" message. While it's there, runs ping instead of checking.
+
+
+def _site_answered(state: dict, cfg: Config, now: datetime) -> list[Msg]:
+    """The site answered (a check or a ping): it's up. The owner hears it if they heard it was
+    down. "site_up_unsent" is such a message that reached nobody: it goes with this answer."""
+    site = state.pop("site", None) or state.pop("site_up_unsent", None)
+    if not (site and site.get("told")):
+        return []  # a blip nobody was told about
+    text = messages.text_site_up(cfg, site, now)
+    return [Msg("up", text, rollback={"site_up_unsent": site}, to=cfg.chat_ids[:1])]
+
+
+def process_ping(state: dict, answered: bool, detail: str, now: datetime, cfg: Config) -> list[Msg]:
+    """Fold one ping of the site's home page into `state` and return the messages to send."""
+    site = state.get("site")
+    if not site:
+        return []
+    if answered:
+        return _site_answered(state, cfg, now)
+    site = state["site"] = sitewatch.pinged(site, False, detail, now)
+    if site["state"] != "down" or site.get("told"):
+        return []
+    site["told"] = True
+    text = messages.text_site_down(cfg, site)
+    return [Msg("down", text, rollback={"site": {**site, "told": False}}, to=cfg.chat_ids[:1])]
+
+
 def alert_cutoff(cfg: Config, overrides: dict, chat: str) -> str:
     """The date a chat's sooner-date alerts must beat ("" = any sooner date): its own
     /set_alert_before value if it set one, else ALERT_ONLY_BEFORE from the settings."""
@@ -106,6 +137,8 @@ def process(
         state["last_check_at"] = iso(now)
     if res.kind in ("ok", "empty"):
         state.update(consecutive_errors=0, error_alert_sent=False, session_last_ok_at=iso(now))
+    if res.kind not in ("down", "skipped"):
+        msgs += _site_answered(state, cfg, now)  # dates, a sign-in page, an error: it's there
 
     if res.kind == "ok":
         earliest = res.dates[0]
@@ -185,6 +218,15 @@ def process(
                 rollback={"session_expired_at": None},
             )
         )
+
+    elif res.kind == "down":
+        # pings decide whether it's down (process_ping); "checks failing" doesn't count these
+        counts["failed"] += 1
+        unsent = state.pop("site_up_unsent", None)
+        site = sitewatch.failed(state.get("site"), res.detail, now)
+        if unsent and not state.get("site"):
+            site.update(since=unsent["since"], told=True)  # to the owner it's the same outage
+        state["site"] = site
 
     elif res.kind in ("throttled", "error"):
         counts["failed"] += 1

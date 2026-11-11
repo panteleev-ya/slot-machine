@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/slot-machine
 COPY src/signin /opt/slot-machine/src/signin
+# slot_machine.sitewatch: the site-down logic the Pi uses too (the package is stdlib-only)
+COPY src/slot_machine /opt/slot-machine/src/slot_machine
 COPY src/signin/docker/entrypoint.sh /opt/slot-machine/entrypoint.sh
 RUN mkdir -p /opt/slot-machine/config \
     && chmod 755 /opt/slot-machine/entrypoint.sh

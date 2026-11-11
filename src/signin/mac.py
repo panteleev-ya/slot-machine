@@ -38,10 +38,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
+
+from slot_machine import sitewatch
+from slot_machine.config import DEFAULT_UA
+from slot_machine.timeutil import fmt_dur, parse_ts
 
 SIGN_IN_URL = "https://ais.usvisa-info.com/en-kz/niv/users/sign_in"
 SIGN_OUT_URL = "https://ais.usvisa-info.com/en-kz/niv/users/sign_out"
+HOME_URL = sitewatch.home_url("https://ais.usvisa-info.com", "en-kz")  # what pings ask for
 CHROME_APP = Path("/Applications/Google Chrome.app")
 CHROME_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,7 +57,9 @@ SETTINGS = REPO_ROOT / "config" / "slot-machine.env"
 TRIES = 3
 EVERY_MINUTES = 12  # quick test; --every 50 --jitter 3 is the overnight pace
 JITTER_MINUTES = 0
-RETRY_MINUTES = 2
+RETRY_MINUTES = 2  # after a failed cycle; doubles with each failure in a row, up to RETRY_MAX_MINUTES
+RETRY_MAX_MINUTES = 60
+PI_POLL_MINUTES = 5  # how often to ask again while the Pi doesn't answer
 FORM_WAIT_S = 30
 AFTER_SUBMIT_S = 25
 APPLESCRIPT_TIMEOUT_S = 20
@@ -70,6 +79,14 @@ KIND_OTHER = "other"
 
 class ProbeError(Exception):
     """A setup or Chrome-control failure. The message never includes the password."""
+
+
+class PiUnreachable(ProbeError):
+    """The Pi's renewal page didn't answer. A session signed in now would have nowhere to go."""
+
+
+class SiteUnreachable(ProbeError):
+    """A visa-site page didn't load, the way it doesn't when the site is down. Pings decide."""
 
 
 def display_path(path: Path) -> str:
@@ -407,6 +424,8 @@ STATUS_JS = (
     flash: probeDialogFlash(flash),
     title: (document.title || "").slice(0, 120),
     hasContinue: Boolean(cont),
+    httpStatus: (performance.getEntriesByType("navigation")[0] || {}).responseStatus || 0,
+    netError: ((document.querySelector(".error-code") || {}).textContent || "").trim().slice(0, 60),
   });
 })()
 """
@@ -719,6 +738,54 @@ def post_session(renew_url: str, token: str, cookie: str, user_agent: str) -> st
     return message
 
 
+def pi_status(renew_url: str, token: str) -> dict:
+    """GET /api/status: the Pi's view of the session. Raises PiUnreachable if the page
+    doesn't answer, ProbeError if it refuses the token."""
+    request = urllib.request.Request(renew_url + "/api/status", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode())
+    except urllib.error.HTTPError as err:
+        if err.code == 401:
+            raise ProbeError(
+                "The Pi refused RENEW_TOKEN. Run make push-config, or check the settings."
+            ) from err
+        raise PiUnreachable(_pi_error(err)) from err
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        raise PiUnreachable(f"Can't reach the Pi at {renew_url}.") from err
+    if not isinstance(payload, dict):
+        raise PiUnreachable("The Pi answered something that is not JSON.")
+    return payload
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def wait_for_pi(renew_url: str, token: str) -> None:
+    """Return once the Pi's renewal page answers. Signing in before that would be for nothing:
+    the session would have nowhere to go, and the next cycle would sign in again."""
+    said = None
+    while True:
+        try:
+            pi_status(renew_url, token)
+        except PiUnreachable as err:
+            note = f"{err} Not signing in: the session would have nowhere to go."
+        else:
+            if said:
+                _say("The Pi answers. Going on.")
+            return
+        if note != said:
+            _say(f"{note} Asking again every {PI_POLL_MINUTES} min.")
+            said = note
+        _wait(PI_POLL_MINUTES * 60)
+
+
+def retry_seconds(failures: int) -> float:
+    """Wait after `failures` failed cycles in a row: 2, 4, 8, ... minutes, at most RETRY_MAX_MINUTES."""
+    return min(RETRY_MAX_MINUTES, RETRY_MINUTES * 2 ** max(0, failures - 1)) * 60
+
+
 def _pi_error(err: urllib.error.HTTPError) -> str:
     try:
         payload = json.loads(err.read().decode())
@@ -757,6 +824,8 @@ def sign_out(window_id: str) -> None:
         set_tab_url(window_id, SIGN_OUT_URL)
         status = wait_until(window_id, _signed_out, 20, what="for sign-out to finish")
     if not status or not _signed_out(status):
+        if page_problem(status):
+            raise not_loaded("Signing out did not load the next page", status)
         raise ProbeError("Signing out did not leave the appointment page.")
     if status.get("hasSignInForm"):
         return
@@ -766,7 +835,7 @@ def sign_out(window_id: str) -> None:
         window_id, lambda page: bool(page.get("hasSignInForm")), FORM_WAIT_S, what="for the sign-in form"
     )
     if not status or not status.get("hasSignInForm"):
-        raise ProbeError("The sign-in form did not appear after signing out.")
+        raise not_loaded("The sign-in form did not appear after signing out", status)
 
 
 def read_status(window_id: str) -> dict:
@@ -904,6 +973,21 @@ def _left_sign_in(page: dict) -> bool:
     return "/niv/" in url
 
 
+def page_problem(status: dict | None) -> str:
+    """What the window shows instead of a visa-site page, if it tells: Chrome's own error page
+    (no connection), or a gateway error. "" when it doesn't tell."""
+    status = status or {}
+    if str(status.get("url") or "").startswith("chrome-error://"):
+        return f"Chrome couldn't load it: {status.get('netError') or status.get('title') or 'no details'}"
+    code = int(status.get("httpStatus") or 0)
+    return f"HTTP {code}" if code >= 500 else ""
+
+
+def not_loaded(what: str, status: dict | None) -> SiteUnreachable:
+    problem = page_problem(status) or _flash(status or {}).strip(" ()")
+    return SiteUnreachable(f"{what} ({problem})" if problem else what)
+
+
 def _say(text: str) -> None:
     print(text, flush=True)
 
@@ -988,8 +1072,8 @@ def run_attempt(window_id: str, email: str, password: str, number: int, tries: i
         _say(f"try {number}/{tries}: this Chrome is already signed in, so the form was not submitted")
         return _after_sign_in(window_id, status), None
     if not status or not status.get("hasSignInForm"):
-        _say(f"try {number}/{tries}: the sign-in form did not appear{_flash(status or {})}")
-        return -1, None
+        # no more tries: pings of the home page tell whether the site is down (renew_loop)
+        raise not_loaded(f"try {number}/{tries}: the sign-in form did not appear", status)
     if status.get("challenge"):
         _say("A captcha puzzle is on screen. The window is left open; this probe will not click it.")
         return 1, None
@@ -1006,12 +1090,100 @@ def run_attempt(window_id: str, email: str, password: str, number: int, tries: i
     return code, anonymous
 
 
-def _pause(seconds: float) -> None:
-    when = time.strftime("%H:%M", time.localtime(time.time() + seconds))
-    _say(f"Next renewal at {when} ({seconds / 60:.1f} min). Ctrl+C stops. The Chrome window stays open.")
+def _wait(seconds: float) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         time.sleep(min(30, deadline - time.monotonic()))
+
+
+def _pause(seconds: float, what: str = "Next renewal") -> None:
+    when = time.strftime("%H:%M", time.localtime(time.time() + seconds))
+    _say(f"{what} at {when} ({seconds / 60:.1f} min). Ctrl+C stops. The Chrome window stays open.")
+    _wait(seconds)
+
+
+def _ping_agent(user_agent: Callable[[], str]) -> str:
+    try:
+        return user_agent()
+    except Exception:  # Chrome on an error page may not say; any browser's will do for a ping
+        return DEFAULT_UA
+
+
+def renew_loop(
+    cycle: Callable[[bool], int],
+    *,
+    every: float,
+    jitter: float,
+    renew_url: str,
+    token: str,
+    user_agent: Callable[[], str],
+    once: bool = False,
+    alive: Callable[[], bool] = lambda: True,
+    home: str = HOME_URL,
+) -> int:
+    """The renewal schedule around `cycle(fresh)`, for the Mac and the Linux driver alike.
+
+    `cycle` signs in and sends the session: 0 sent, 1 stop (a captcha), -1 try again later.
+    It raises SiteUnreachable when a visa-site page didn't load, ProbeError for any other
+    failure. Then the visa site gets the Pi's treatment (slot_machine.sitewatch): no sign-in,
+    a ping of the home page right away and every PING_EVERY; after CONFIRM_PINGS unanswered
+    it's down, and the first answer ends it. Other failures wait 2, 4, 8 ... 60 minutes.
+    Before each sign-in the Pi must answer (wait_for_pi). Returns the exit code."""
+    site = None  # the sitewatch record while the site looks down
+    failures = 0
+    number = 1
+    agent = None
+    every_ping = fmt_dur(sitewatch.PING_EVERY.total_seconds())
+    while True:
+        if site is not None:
+            _wait(max(0.0, (parse_ts(site["next_ping"]) - _now()).total_seconds()))
+            agent = agent or _ping_agent(user_agent)
+            answered, detail = sitewatch.ping(home, agent)
+            before, site = site, sitewatch.pinged(site, answered, detail, _now())
+            if site is not None:
+                if site["state"] != before["state"]:
+                    _say(
+                        f"ping: {detail}. The visa site is down. Pinging its home page every "
+                        f"{every_ping}; no sign-in until it answers."
+                    )
+                elif site["state"] == "checking":
+                    _say(f"ping {site['pings']}/{sitewatch.CONFIRM_PINGS}: {detail}")
+                continue  # still down: pings are quiet
+            if before["state"] == "down":
+                outage = fmt_dur((_now() - parse_ts(before["since"])).total_seconds())
+                _say(f"ping: {detail}. The visa site answers again after {outage}. Signing in now.")
+                failures = 0
+            else:
+                _say(f"ping: {detail}. The home page answers, so the site isn't down.")
+                _pause(retry_seconds(failures), f"{failures} failed cycle(s) in a row. Next try")
+        wait_for_pi(renew_url, token)
+        _say(f"cycle {number}: starting")
+        fresh = number > 1  # the first cycle uses the session Chrome already has
+        number += 1
+        try:
+            code = cycle(fresh)
+        except SiteUnreachable as err:
+            _say(f"error: {err}")
+            if once or not alive():
+                return 1
+            failures += 1
+            site = sitewatch.failed(None, str(err), _now())
+            _say("The visa site may be down. Pinging its home page before signing in again.")
+            continue
+        except ProbeError as err:
+            _say(f"error: {err}")
+            if not alive():
+                return 1
+            code = -1
+        if code == 1:
+            return 1
+        if once:
+            return 0 if code == 0 else 1
+        failures = 0 if code == 0 else failures + 1
+        if failures:
+            _pause(retry_seconds(failures), f"{failures} failed cycle(s) in a row. Next try")
+        else:
+            _pause(cycle_seconds(every, jitter))
 
 
 def renew_cycle(
@@ -1086,27 +1258,22 @@ def main(argv: list[str] | None = None) -> int:
     window_id = open_sign_in_window()
     wait_until(window_id, lambda page: bool(page.get("url")), 15, what="for the new Chrome window")
     previous: str | None = None
-    cycle = 1
-    while True:
-        _say(f"cycle {cycle}: starting")
-        try:
-            code, previous = renew_cycle(
-                window_id,
-                email,
-                password,
-                args.tries,
-                renew_url,
-                token,
-                previous,
-                fresh=cycle > 1,
-            )
-        except ProbeError as err:
-            _say(f"error: {err}")
-            code = -1
-        if code == 1:
-            return 1
-        _pause(cycle_seconds(args.every, args.jitter) if code == 0 else RETRY_MINUTES * 60)
-        cycle += 1
+
+    def cycle(fresh: bool) -> int:
+        nonlocal previous
+        code, previous = renew_cycle(
+            window_id, email, password, args.tries, renew_url, token, previous, fresh=fresh
+        )
+        return code
+
+    return renew_loop(
+        cycle,
+        every=args.every,
+        jitter=args.jitter,
+        renew_url=renew_url,
+        token=token,
+        user_agent=lambda: browser_user_agent(window_id),
+    )
 
 
 if __name__ == "__main__":

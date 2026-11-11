@@ -8,7 +8,7 @@ writes {"ais": "http://127.0.0.1:P", "telegram": "http://127.0.0.1:Q"} to the po
 file and serves until killed. Scenario control over HTTP:
 
     POST {ais}/_control       JSON body, any of: dates, status, body, expire,
-                              rotate_cookie, add_session
+                              rotate_cookie, add_session, home_status
     GET  {ais}/_requests      {"count": N}
     GET  {telegram}/_messages list of sent messages
     POST {telegram}/_control  JSON body: {"fail_next": N, "fail_status": 500}
@@ -41,6 +41,7 @@ APPOINTMENT_PAGE = """<html><body><form>
 </form></body></html>"""
 
 SIGN_IN_PAGE = """<html><body><form><input type="email" id="user_email"></form></body></html>"""
+HOME_PAGE = """<html><body><a href="/en-kz/niv/users/sign_in">Sign In</a></body></html>"""
 
 
 class FakeAIS:
@@ -53,6 +54,7 @@ class FakeAIS:
         self.sessions = {VALID_SESSION}
         self.dates: list[str] = []
         self.status = 200  # forced status for days.json (403, 429, 500, ...)
+        self.home_status = 200  # forced status for the home page, which pings ask for (503, ...)
         self.body: bytes | None = None  # raw body override for days.json
         self.rotate_cookie: str | None = None  # re-issue _yatri_session with this value
         # session -> the User-Agent it was signed in with; such a session only works from that
@@ -67,6 +69,8 @@ class FakeAIS:
                 self.dates = list(cmd["dates"])
             if "status" in cmd:
                 self.status = int(cmd["status"])
+            if "home_status" in cmd:
+                self.home_status = int(cmd["home_status"])
             if "body" in cmd:
                 self.body = None if cmd["body"] is None else str(cmd["body"]).encode()
             if cmd.get("expire"):
@@ -80,6 +84,9 @@ class FakeAIS:
 
     def days_requests(self) -> int:
         return sum(1 for _, path, _ in self.requests if "/appointment/days/" in path)
+
+    def home_requests(self) -> int:
+        return sum(1 for _, path, _ in self.requests if path.rstrip("/") == f"/{self.locale}/niv")
 
     def handle(self, h: BaseHTTPRequestHandler) -> None:
         path = urllib.parse.urlsplit(h.path).path
@@ -96,6 +103,8 @@ class FakeAIS:
             sent, h.headers.get("User-Agent")
         ) == h.headers.get("User-Agent")
         base = f"/{self.locale}/niv"
+        if path.rstrip("/") == base:
+            return send(h, self.home_status, HOME_PAGE.encode(), "text/html")
         if re.fullmatch(
             rf"{base}/schedule/{self.schedule_id}/appointment/days/{self.facility_id}\.json", path
         ):

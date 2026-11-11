@@ -5,7 +5,7 @@ renewal page over the home Wi-Fi, and the Pi checks with it right away.
 
 It reads exactly one cookie (`_yatri_session` on `ais.usvisa-info.com`), and only when you
 click. It talks only to the Pi (`yarikos.local`, or the address you set). It never sees
-your password, solves no captcha, and stores only the Pi's address and token.
+your password and stores only the Pi's address and token.
 
 ## Install (once)
 
@@ -26,7 +26,7 @@ extension that isn't from the Chrome Web Store.
 
 When the "session ended" message arrives:
 
-1. Sign in at <https://ais.usvisa-info.com/en-kz/niv/users/sign_in> (captcha and all) and wait
+1. Sign in at <https://ais.usvisa-info.com/en-kz/niv/users/sign_in> and wait
    for your appointment page. The site sets its cookie as soon as the sign-in page opens, so the
    popup can't tell whether you're signed in yet.
 2. Click the extension → **Send session to the Pi**. It answers with the earliest date. It also

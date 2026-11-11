@@ -1,22 +1,77 @@
-"""One scheduled check: lock, load state, maybe fetch, decide, send, save."""
+"""One scheduled check: lock, load state, maybe fetch, decide, send, save. And the pings
+that stand in for checks while the visa site looks down (sitewatch)."""
 
 from __future__ import annotations
 
 import dataclasses
 from datetime import timedelta
 
-from . import telegram, timeutil
+from . import sitewatch, telegram, timeutil
 from .ais import FetchResult, fetch_dates
 from .config import Config
 from .store import BOT_FILE, load_json, save_json, single_instance
 from .timeutil import fmt_clock, fmt_dur, iso, log, parse_ts
-from .watcher import WELCOMES, process, record_expiry_told, unmark_welcomed
+from .watcher import WELCOMES, Msg, process, process_ping, record_expiry_told, unmark_welcomed
 
 
 def session_cfg(cfg: Config, state: dict) -> Config:
     """cfg with the User-Agent of the browser the current session came from, if known."""
     ua = state.get("session_user_agent")
     return dataclasses.replace(cfg, user_agent=ua) if ua else cfg
+
+
+def deliver(cfg: Config, state: dict, msgs: list[Msg], dry_run: bool = False) -> None:
+    """Send each message to its chats; roll its state back if it reached nobody."""
+    for m in msgs:
+        targets = cfg.chat_ids if m.to is None else m.to
+        if dry_run:
+            to = ", ".join(targets) or "nobody"
+            print(f"--- would send ({m.kind}{', silent' if m.silent else ''}) to {to} ---\n{m.text}\n")
+            continue
+        failed = [c for c in targets if not telegram.send_message(cfg, m.text, m.silent, chat_id=c)]
+        if not targets:
+            log("telegram not configured; message not sent")
+        if len(failed) == len(targets):
+            state.update(m.rollback)  # reached nobody: try again on the next run
+        if m.kind == "expired":
+            record_expiry_told(state, [c for c in targets if c not in failed])
+        if m.kind in WELCOMES:
+            for chat in failed:  # a chat that missed its welcome gets one next run
+                unmark_welcomed(state, chat)
+
+
+def ping_site(cfg: Config, state: dict, now, via: str) -> list[Msg]:
+    """One ping of the home page while the site looks down. Logged when something changes,
+    not for every ping while it stays down."""
+    before = state["site"]["state"]
+    url = sitewatch.home_url(cfg.ais_base, cfg.locale)
+    answered, detail = sitewatch.ping(url, session_cfg(cfg, state).user_agent)
+    msgs = process_ping(state, answered, detail, now, cfg)
+    site = state.get("site")
+    every = fmt_dur(sitewatch.PING_EVERY.total_seconds())
+    if site is None:
+        log(f"ping: {detail}; the visa site answers, checks resume [{via}]")
+    elif site["state"] != before:
+        log(f"ping: {detail}; the visa site is down, pinging every {every} until it answers [{via}]")
+    elif site["state"] == "checking":
+        log(f"ping {site['pings']}/{sitewatch.CONFIRM_PINGS}: {detail} [{via}]")
+    return msgs
+
+
+def run_ping(cfg: Config, via: str = "cron") -> int:
+    """Cron runs this every minute. While the site looks down it pings it when a ping is due;
+    otherwise (almost always) it returns at once, without a request or a log line."""
+    state_path = cfg.state_dir / "state.json"
+    with single_instance(cfg.state_dir) as got_lock:
+        if not got_lock:
+            return 0  # a check is running; the next minute will do
+        state = load_json(state_path, {})
+        now = timeutil.utcnow()
+        if not sitewatch.ping_due(state.get("site"), now):
+            return 0
+        deliver(cfg, state, ping_site(cfg, state, now, via))
+        save_json(state_path, state)
+        return 0
 
 
 def run_check(
@@ -82,6 +137,14 @@ def run_check(
             )
             return 0, None
 
+        site_msgs = []
+        if res is None and state.get("site") and not force:
+            # the site looked down: pings stand in for checks until one gets an answer
+            if sitewatch.ping_due(state["site"], now):
+                site_msgs = ping_site(cfg, state, now, via)
+            if state.get("site"):
+                res = FetchResult("skipped", detail=f"visa site {state['site']['state']}; pinging instead")
+
         backoff = parse_ts(state.get("backoff_until"))
         if res is not None:
             pass  # the new session's trial was this run's check
@@ -99,22 +162,7 @@ def run_check(
         if res.cookies is not None and res.cookies != cookies:
             save_json(cookie_path, res.cookies)
         alert_before = load_json(cfg.state_dir / BOT_FILE, {}).get("alert_before", {})
-        for m in process(state, res, now, cfg, alert_before):
-            targets = cfg.chat_ids if m.to is None else m.to
-            if dry_run:
-                to = ", ".join(targets) or "nobody"
-                print(f"--- would send ({m.kind}{', silent' if m.silent else ''}) to {to} ---\n{m.text}\n")
-                continue
-            failed = [c for c in targets if not telegram.send_message(cfg, m.text, m.silent, chat_id=c)]
-            if not targets:
-                log("telegram not configured; message not sent")
-            if len(failed) == len(targets):
-                state.update(m.rollback)  # reached nobody: try again on the next run
-            if m.kind == "expired":
-                record_expiry_told(state, [c for c in targets if c not in failed])
-            if m.kind in WELCOMES:
-                for chat in failed:  # a chat that missed its welcome gets one next run
-                    unmark_welcomed(state, chat)
+        deliver(cfg, state, site_msgs + process(state, res, now, cfg, alert_before), dry_run)
         if not dry_run:
             save_json(state_path, state)
         log(f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip() + f" [{via}]")
