@@ -8,6 +8,7 @@ behind --discover.
 from __future__ import annotations
 
 import html
+import http.client
 import json
 import re
 import urllib.error
@@ -15,6 +16,7 @@ import urllib.request
 from dataclasses import dataclass, field
 
 from .config import Config
+from .sitewatch import DOWN_STATUSES
 from .timeutil import DATE_RE
 
 MAX_BODY = 2_000_000
@@ -22,7 +24,7 @@ MAX_BODY = 2_000_000
 
 @dataclass
 class FetchResult:
-    kind: str  # ok | empty | expired | throttled | error | skipped
+    kind: str  # ok | empty | expired | throttled | down | error | skipped
     dates: list = field(default_factory=list)
     detail: str = ""
     cookies: dict | None = None  # refreshed cookies, only after a good answer
@@ -150,6 +152,8 @@ def classify(status: int, headers, body: bytes, cookies: dict) -> FetchResult:
         return FetchResult("expired", detail="HTTP 401")
     if status in (403, 429):
         return FetchResult("throttled", detail=f"HTTP {status}")
+    if status in DOWN_STATUSES:
+        return FetchResult("down", detail=f"HTTP {status}")
     if status != 200:
         return FetchResult("error", detail=f"HTTP {status}")
     text = body.decode("utf-8", "replace").strip()
@@ -187,8 +191,10 @@ def fetch_dates(cfg: Config, cookies: dict) -> FetchResult:
     )
     try:
         status, headers, body = http_get(url, ais_headers(cfg, cookies))
-    except Exception as e:  # DNS, TLS, timeouts, resets
-        return FetchResult("error", detail=f"network: {type(e).__name__}: {e}"[:200])
+    except (OSError, http.client.HTTPException) as e:  # DNS, TLS, timeouts, resets: the site is down
+        return FetchResult("down", detail=f"network: {type(e).__name__}: {e}"[:200])
+    except Exception as e:
+        return FetchResult("error", detail=f"{type(e).__name__}: {e}"[:200])
     return classify(status, headers, body, cookies)
 
 

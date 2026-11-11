@@ -6,7 +6,8 @@ Two ways in, both write-only (nothing here ever returns a cookie):
                      Used by the Chrome extension (extension/).
   GET  /?t=TOKEN     a page with a paste box; TOKEN comes from the "session ended" alert
   POST /renew        and only works until that session is renewed (renew_link.py).
-  GET  /api/status   (Bearer) session status for the extension's popup.
+  GET  /api/status   (Bearer) session status for the extension's popup; the sign-in loop
+                     (src/signin) calls it to see that the Pi is there before signing in.
 
 Cron starts `slot-machine --serve` every minute; if a server is already running, the
 new one exits at once, so cron doubles as a watchdog. Plain http: home network only.

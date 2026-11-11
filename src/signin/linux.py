@@ -232,10 +232,12 @@ def navigate(page: cdp_client.Client, url: str) -> None:
     try:
         result = page.call("Page.navigate", {"url": url})
     except cdp_client.CDPError as err:
+        if "did not answer" in str(err):  # still connecting: the site may be down
+            raise mac.SiteUnreachable(f"Chrome is still waiting for {url}") from err
         raise mac.ProbeError(str(err)) from err
     error = result.get("errorText")
-    if error:
-        raise mac.ProbeError(f"Chrome did not open the page ({error})")
+    if error:  # net::ERR_CONNECTION_TIMED_OUT and the like
+        raise mac.SiteUnreachable(f"Chrome did not open the page ({error})")
     mac.pause_step("for the new page to settle")
 
 
@@ -412,8 +414,8 @@ def run_attempt(
         mac._say(f"try {number}/{tries}: this Chrome is already signed in, so the form was not submitted")
         return _after_sign_in(page, status), None
     if not status or not status.get("hasSignInForm"):
-        mac._say(f"try {number}/{tries}: the sign-in form did not appear{mac._flash(status or {})}")
-        return -1, None
+        # no more tries: pings of the home page tell whether the site is down (mac.renew_loop)
+        raise mac.not_loaded(f"try {number}/{tries}: the sign-in form did not appear", status)
     if status.get("challenge"):
         mac._say("A captcha puzzle is on screen. This probe will not click it.")
         save_failure_shot(page)
@@ -446,6 +448,8 @@ def sign_out(page: cdp_client.Client) -> None:
         navigate(page, mac.SIGN_OUT_URL)
         status = wait_until(page, mac._signed_out, 20, what="for sign-out to finish")
     if not status or not mac._signed_out(status):
+        if mac.page_problem(status):
+            raise mac.not_loaded("Signing out did not load the next page", status)
         raise mac.ProbeError("Signing out did not leave the appointment page.")
     if status.get("hasSignInForm"):
         return
@@ -455,7 +459,7 @@ def sign_out(page: cdp_client.Client) -> None:
         page, lambda item: bool(item.get("hasSignInForm")), mac.FORM_WAIT_S, what="for the sign-in form"
     )
     if not status or not status.get("hasSignInForm"):
-        raise mac.ProbeError("The sign-in form did not appear after signing out.")
+        raise mac.not_loaded("The sign-in form did not appear after signing out", status)
 
 
 def send_session(page: cdp_client.Client, renew_url: str, token: str, avoid: str | None) -> str:
@@ -563,33 +567,32 @@ def run_loop(args: argparse.Namespace, port: int = DEBUG_PORT) -> int:
     )
     proc, page, _profile = open_browser(port)
     previous: str | None = None
-    cycle = 1
+
+    def cycle(fresh: bool) -> int:
+        nonlocal previous
+        try:
+            code, previous = renew_cycle(
+                page, email, password, args.tries, renew_url, token, previous, fresh=fresh
+            )
+        except cdp_client.CDPError as err:
+            save_failure_shot(page)
+            raise mac.ProbeError(str(err)) from err
+        except mac.ProbeError:
+            save_failure_shot(page)
+            raise
+        return code
+
     try:
-        while True:
-            mac._say(f"cycle {cycle}: starting")
-            try:
-                code, previous = renew_cycle(
-                    page,
-                    email,
-                    password,
-                    args.tries,
-                    renew_url,
-                    token,
-                    previous,
-                    fresh=cycle > 1,
-                )
-            except (mac.ProbeError, cdp_client.CDPError) as err:
-                mac._say(f"error: {err}")
-                save_failure_shot(page)
-                code = -1
-                if proc.poll() is not None:
-                    return 1
-            if code == 1:
-                return 1
-            if args.once:
-                return 0 if code == 0 else 1
-            mac._pause(mac.cycle_seconds(args.every, args.jitter) if code == 0 else mac.RETRY_MINUTES * 60)
-            cycle += 1
+        return mac.renew_loop(
+            cycle,
+            every=args.every,
+            jitter=args.jitter,
+            renew_url=renew_url,
+            token=token,
+            user_agent=lambda: browser_user_agent(page),
+            once=args.once,
+            alive=lambda: proc.poll() is None,
+        )
     finally:
         page.close()
         stop_chrome(proc)

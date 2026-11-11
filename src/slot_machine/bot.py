@@ -13,7 +13,7 @@ import html
 import time
 from datetime import date, timedelta
 
-from . import telegram, timeutil
+from . import sitewatch, telegram, timeutil
 from .ais import FetchResult
 from .config import Config
 from .messages import esc, session_line
@@ -22,7 +22,7 @@ from .runner import run_check
 from .store import BOT_FILE, load_json, save_json, single_instance  # BOT_FILE: offset, last /check,
 
 # chats seen outside the list, and each chat's own alert cutoff (alert_before)
-from .timeutil import DATE_RE, fmt_day, fmt_dur, fmt_short, iso, local, log, parse_ts
+from .timeutil import DATE_RE, fmt_clock, fmt_day, fmt_dur, fmt_short, iso, local, log, parse_ts
 from .watcher import alert_cutoff, current_earliest
 
 LOCK_NAME = ".telegram.lock"  # one poller at a time; separate from the check lock
@@ -104,6 +104,14 @@ def check(cfg: Config, bot: dict, chat_id: str) -> str:
         wait = fmt_dur((cooldown - (now - last)).total_seconds())
         log(f"telegram: /check from {chat_id} refused, cooldown")
         return f"A check ran {fmt_dur((now - last).total_seconds())} ago. Try again in {wait}."
+    site = load_json(cfg.state_dir / "state.json", {}).get("site")
+    if site:  # no check while the site looks down: the Pi pings it and resumes on its own
+        log(f"telegram: /check from {chat_id} not run, visa site {site['state']}")
+        return (
+            f"The visa site hasn't answered since {fmt_clock(parse_ts(site['since']), cfg)} "
+            f"({esc(site.get('last_error', 'unknown'))}), so nothing was checked. The Pi pings its "
+            f"home page every {fmt_dur(sitewatch.PING_EVERY.total_seconds())} and checks again once it answers."
+        )
     bot["last_check_at"] = iso(now)
     _, res = run_check(cfg, force=True, via=f"telegram:{chat_id}")
     return check_reply(cfg, res, now)

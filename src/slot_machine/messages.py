@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 from .config import Config
 from .renew_link import renew_link
+from .sitewatch import PING_EVERY
 from .timeutil import days_between, fmt_clock, fmt_date, fmt_day, fmt_dur, fmt_short, parse_ts, plural
 
 
@@ -135,6 +136,38 @@ def text_error(cfg: Config, state: dict) -> str:
     )
 
 
+def _every() -> str:
+    return fmt_dur(PING_EVERY.total_seconds())
+
+
+def text_site_down(cfg: Config, site: dict) -> str:
+    """To the owner, once the pings after a failed check got no answer either (sitewatch)."""
+    since, down_at = parse_ts(site["since"]), parse_ts(site.get("down_at")) or parse_ts(site["since"])
+    pings = plural(site.get("pings", 0), "ping")
+    return "\n".join(
+        [
+            f"<b>🔴 Visa site down - {esc(cfg.label)}</b>",
+            f"No answer since {fmt_clock(since, cfg)}: a check failed, then {pings} of the home page "
+            f"over {fmt_dur((down_at - since).total_seconds())} got none.",
+            f"Last error: {esc(site.get('last_error', 'unknown'))}",
+            f"Date checks are paused. The Pi pings the home page every {_every()} and tells you when it "
+            "answers; the sign-in loop does the same and doesn't sign in meanwhile.",
+        ]
+    )
+
+
+def text_site_up(cfg: Config, site: dict, now: datetime) -> str:
+    """To the owner, when the site answers again after a "site down" message."""
+    since = parse_ts(site["since"])
+    return "\n".join(
+        [
+            f"<b>✅ Visa site back up - {esc(cfg.label)}</b>",
+            f"It didn't answer for {fmt_dur((now - since).total_seconds())} (since {fmt_clock(since, cfg)}).",
+            "Date checks resume on schedule.",
+        ]
+    )
+
+
 def text_digest(cfg: Config, state: dict, cur: str | None, now: datetime, today: date) -> str:
     """`cur` is the current earliest date (None if the newest good answer had none)."""
     lines = [f"<b>📋 Daily visa slot summary - {esc(cfg.label)}</b>"]
@@ -177,4 +210,8 @@ def text_digest(cfg: Config, state: dict, cur: str | None, now: datetime, today:
     c = state.get("counts") or {}
     lines.append(f"Checks: {c.get('ok', 0)} ok · {c.get('empty', 0)} empty · {c.get('failed', 0)} failed")
     lines.append(f"Session: {session_line(cfg, state, now)}")
+    site = state.get("site")
+    if site:
+        how = "down" if site.get("state") == "down" else "not answering"
+        lines.append(f"Visa site: {how} since {fmt_clock(parse_ts(site['since']), cfg)}")
     return "\n".join(lines)
