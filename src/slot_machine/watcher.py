@@ -124,10 +124,17 @@ def alert_cutoff(cfg: Config, overrides: dict, chat: str) -> str:
 
 
 def process(
-    state: dict, res: FetchResult, now: datetime, cfg: Config, alert_before: dict | None = None
+    state: dict,
+    res: FetchResult,
+    now: datetime,
+    cfg: Config,
+    alert_before: dict | None = None,
+    pause_on_empty: bool = True,
 ) -> list[Msg]:
     """Fold one check result into `state` and return the messages to send.
-    `alert_before` maps chat id -> its own cutoff ("" = none), set with /set_alert_before."""
+    `alert_before` maps chat id -> its own cutoff ("" = none), set with /set_alert_before.
+    `pause_on_empty` False (a Telegram /check): an empty answer leaves the pause as it is,
+    neither starting nor extending it; the next scheduled check decides."""
     alert_before = alert_before or {}
     msgs = []
     today = local(now, cfg).date()
@@ -184,7 +191,9 @@ def process(
         # AIS answers [] both when nothing is open and when it is quietly throttling
         # you, so back off and don't treat a short empty spell as "dates gone".
         counts["empty"] += 1
-        state.update(last_empty_at=iso(now), backoff_until=iso(now + timedelta(hours=cfg.backoff_hours)))
+        state["last_empty_at"] = iso(now)
+        if pause_on_empty:
+            state["backoff_until"] = iso(now + timedelta(hours=cfg.backoff_hours))
         since = parse_ts(state.get("empty_since"))
         if since is None:
             state["empty_since"] = iso(now)

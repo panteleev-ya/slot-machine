@@ -8,7 +8,17 @@ from datetime import date, datetime, timedelta
 from .config import Config
 from .renew_link import renew_link
 from .sitewatch import PING_EVERY
-from .timeutil import days_between, fmt_clock, fmt_date, fmt_day, fmt_dur, fmt_short, parse_ts, plural
+from .timeutil import (
+    days_between,
+    fmt_clock,
+    fmt_date,
+    fmt_day,
+    fmt_dur,
+    fmt_short,
+    fmt_until,
+    parse_ts,
+    plural,
+)
 
 
 def esc(value) -> str:
@@ -21,10 +31,22 @@ def session_line(cfg: Config, state: dict, now: datetime) -> str:
         return f"EXPIRED since {fmt_clock(expired, cfg)} - sign in again to renew it"
     set_at = parse_ts(state.get("session_set_at"))
     line = f"active for {fmt_dur((now - set_at).total_seconds())}" if set_at else "active"
-    backoff = parse_ts(state.get("backoff_until"))
-    if backoff and backoff > now:
-        line += f"; pausing until {fmt_clock(backoff, cfg)} (site went quiet or throttled)"
+    backoff = pause_until(state, now)
+    if backoff:
+        line += f"; scheduled checks pause until {fmt_until(backoff, now, cfg)} after no dates or a throttle"
     return line
+
+
+def pause_until(state: dict, now: datetime) -> datetime | None:
+    """End of the pause after an empty or throttled answer, if one is on."""
+    until = parse_ts(state.get("backoff_until"))
+    return until if until and until > now else None
+
+
+def pause_note(cfg: Config, state: dict, now: datetime) -> str:
+    """ "Scheduled checks pause until 15:20 (3h 0m)." for an answer that started a pause."""
+    until = pause_until(state, now)
+    return f"Scheduled checks pause until {fmt_until(until, now, cfg)}." if until else ""
 
 
 def _rules(cfg: Config) -> str:

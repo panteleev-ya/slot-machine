@@ -92,5 +92,15 @@ def fmt_clock(dt: datetime, cfg: Config) -> str:
     return f"{MON[t.month - 1]} {t.day} {t:%H:%M}"
 
 
+def fmt_until(dt: datetime, now: datetime, cfg: Config) -> str:
+    """When `dt` comes, seen from `now`: "15:20 (3h 0m)", with the date if it's another
+    local day: "Nov 13 02:10 (3h 0m)"."""
+    clock = (
+        f"{local(dt, cfg):%H:%M}" if local(dt, cfg).date() == local(now, cfg).date() else fmt_clock(dt, cfg)
+    )
+    # to the nearest minute: a pause started a second ago reads "3h 0m", not "2h 59m"
+    return f"{clock} ({fmt_dur(round((dt - now).total_seconds() / 60) * 60)})"
+
+
 def days_between(a: str, b: str) -> int:
     return (date.fromisoformat(b) - date.fromisoformat(a)).days

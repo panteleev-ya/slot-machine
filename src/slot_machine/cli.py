@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__, ais, bot, renew, telegram, timeutil
 from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
-from .messages import session_line
+from .messages import pause_note, session_line
 from .runner import run_check, run_ping
 from .store import load_json
 from .timeutil import fmt_clock, fmt_day, local, parse_ts
@@ -30,7 +30,9 @@ def cmd_set_cookie(cfg: Config, value: str) -> int:
     if res.kind == "ok":
         print(f"Cookie works. Earliest date right now: {res.dates[0]}. Cron takes it from here.")
     elif res.kind == "empty":
-        print("Cookie works, but no dates were returned (none open, or throttled).")
+        state = load_json(cfg.state_dir / "state.json", {})
+        note = pause_note(cfg, state, timeutil.utcnow())
+        print(f"Cookie works, but no dates were returned (none open, or throttled). {note}".rstrip())
     elif res.kind == "expired":
         print(
             "Not saved: the site rejected that session. Sign in again and copy a fresh _yatri_session value."

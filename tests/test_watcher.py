@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from slot_machine.ais import FetchResult
+from slot_machine.messages import session_line
 from slot_machine.watcher import current_earliest, process
 
 from helpers import T0, empty, kinds, make_cfg, ok
@@ -216,7 +217,39 @@ def test_digest_after_empty_answer_reports_backoff():
     assert kinds(msgs) == ["digest"]
     assert "No dates offered at the last good check" in msgs[0].text
     assert "Since the last summary: no dates now (was Sep 1, 2027)" in msgs[0].text
-    assert "pausing until Nov 6 12:00" in msgs[0].text
+    assert "Session: active; scheduled checks pause until 12:00 (3h 0m) after no dates or a throttle" in (
+        msgs[0].text
+    )
+
+
+def test_session_line_names_the_day_when_the_pause_ends_on_another_day():
+    state, cfg = started()
+    late = T0 + timedelta(hours=16, minutes=30)  # 22:30
+    process(state, empty(), late, cfg)
+    assert session_line(cfg, state, late).endswith(
+        "pause until Nov 6 01:30 (3h 0m) after no dates or a throttle"
+    )
+
+
+def test_empty_answer_pauses_scheduled_checks():
+    state, cfg = started()
+    process(state, empty(), T0 + timedelta(hours=1), cfg)
+    assert state["backoff_until"] == "2026-11-05T10:00:00+00:00"
+
+
+def test_empty_answer_without_pause_leaves_the_current_pause_alone():
+    state, cfg = started()
+    process(state, empty(), T0 + timedelta(hours=1), cfg)  # pause until 10:00
+    process(state, empty(), T0 + timedelta(hours=2), cfg, pause_on_empty=False)
+    assert state["backoff_until"] == "2026-11-05T10:00:00+00:00"
+    assert state["last_empty_at"] == "2026-11-05T08:00:00+00:00"  # still counts as an empty answer
+    assert state["counts"]["empty"] == 2
+
+
+def test_empty_answer_without_pause_starts_none():
+    state, cfg = started()
+    process(state, empty(), T0 + timedelta(hours=1), cfg, pause_on_empty=False)
+    assert state.get("backoff_until") is None
 
 
 def test_digest_hour_respects_timezone():

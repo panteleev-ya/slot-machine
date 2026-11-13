@@ -26,6 +26,8 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
 - **`/check` in Telegram** (in a listed chat) runs a check right away and answers with the earliest
   date, like `make check-now`; at most once every `TELEGRAM_CHECK_COOLDOWN_MINUTES` (2). Other chats get
   no answer. Commands older than 10 minutes, such as ones sent while the Pi was offline, are ignored.
+  A `/check` that gets no dates never starts or extends the pause of scheduled checks (the reply says
+  until when they're paused, if they are); the next scheduled check decides.
 - **`/set_alert_before YYYY-MM-DD`** in Telegram: sooner-date alerts *in that chat* only for dates before
   that day. `/set_alert_before off` for every sooner date again, `/set_alert_before` alone shows the
   setting. Each chat has its own, so nobody changes what someone else gets; `ALERT_ONLY_BEFORE` in the
@@ -149,7 +151,7 @@ Fifty minutes, plus or minus three, is the overnight pace: a session dies about 
 sign-in. Twelve minutes is only for a short test.
 
 Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it
-skips the interval and any throttle pause, so use it sparingly). After a "session ended" alert: sign in
+skips the interval and any throttle pause, and an empty answer starts a new pause, so use it sparingly). After a "session ended" alert: sign in
 again, `make set-cookie`.
 
 ## Development
