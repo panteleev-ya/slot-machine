@@ -172,6 +172,19 @@ def test_extension_sends_a_new_session(server, expired, ais, tg, capsys):
     assert FRESH not in out and TOKEN not in out
 
 
+def test_extension_session_with_no_dates_says_when_the_pause_ends(server, expired, ais):
+    ais.fake.dates = []
+    status, data = api(server, "/api/cookie", {"cookie": FRESH})
+    assert (status, data) == (
+        200,
+        {
+            "ok": True,
+            "message": "Session saved, but no dates came back (none open, or throttled). "
+            "Scheduled checks pause until 10:00 (3h 0m).",
+        },
+    )
+
+
 def test_status_for_the_popup(server, expired):
     status, data = api(server, "/api/status")
     assert status == 200 and data["ok"] and data["expired"] is True

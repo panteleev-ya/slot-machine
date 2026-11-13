@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from . import ais, timeutil
 from .config import Config
-from .messages import session_line
+from .messages import pause_note, session_line
 from .renew_link import link_token, link_token_ok
 from .runner import run_check
 from .store import load_json, single_instance
@@ -55,6 +55,11 @@ def kept_instead(cfg: Config, submitted: dict) -> bool:
     )
 
 
+def _pause_note(cfg: Config) -> str:
+    now = timeutil.utcnow()
+    return pause_note(cfg, load_json(cfg.state_dir / "state.json", {}), now)
+
+
 def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None) -> tuple[int, dict]:
     """Save the cookie and run one check with the browser's User-Agent.
     Returns (HTTP status, {"ok", "message"})."""
@@ -74,7 +79,9 @@ def apply_cookie(cfg: Config, raw: str, via: str, user_agent: str | None = None)
     if res.kind == "empty":
         return 200, {
             "ok": True,
-            "message": "Session saved, but no dates came back (none open, or throttled).",
+            "message": " ".join(
+                ["Session saved, but no dates came back (none open, or throttled).", _pause_note(cfg)]
+            ).rstrip(),
         }
     if res.kind == "expired":
         return 200, {

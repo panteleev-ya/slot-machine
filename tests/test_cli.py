@@ -44,7 +44,10 @@ def test_set_cookie_rejected_by_site(env_file, ais, clock, capsys):
 
 def test_set_cookie_empty_answer(env_file, ais, clock, capsys):
     assert run(env_file, "--set-cookie", VALID_SESSION) == 0
-    assert "Cookie works, but no dates were returned" in capsys.readouterr().out
+    assert (
+        "Cookie works, but no dates were returned (none open, or throttled). "
+        "Scheduled checks pause until 09:00 (3h 0m)."
+    ) in capsys.readouterr().out
 
 
 def test_set_cookie_garbage_not_saved(env_file, tmp_path):

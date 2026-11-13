@@ -160,13 +160,58 @@ def test_check_while_a_scheduled_check_runs(live, tg, clock):
     ]
 
 
-def test_check_that_gets_an_empty_answer(live, ais, tg, clock):
+def test_check_that_gets_an_empty_answer_starts_no_pause(live, ais, tg, clock):
     ais.fake.dates = []
     tg.fake.say(FRIEND, "/check")
     bot.poll(live, 0)
     assert replies(tg, FRIEND) == [
-        "No dates came back (none open, or the site is throttling). Scheduled checks pause for 3h 0m."
+        "No dates came back (none open, or the site is throttling). Scheduled checks go on as usual; "
+        "if the next one also gets none, they pause for 3h 0m."
     ]
+    state = json.loads((live.state_dir / "state.json").read_text())
+    assert state.get("backoff_until") is None
+    clock.advance(hours=1)
+    assert run_check(live)[1].kind == "empty"  # the next scheduled check runs, and pauses
+    assert json.loads((live.state_dir / "state.json").read_text())["backoff_until"] == (
+        "2026-11-05T10:00:00+00:00"
+    )
+
+
+def test_check_during_a_pause_leaves_it_as_it_was(live, ais, tg, clock):
+    ais.fake.dates = []
+    clock.advance(hours=1)
+    run_check(live)  # 07:00, empty: scheduled checks pause until 10:00
+    clock.advance(minutes=20)
+    tg.fake.say(FRIEND, "/check")
+    bot.poll(live, 0)
+    assert ais.fake.days_requests() == 3  # /check still asks the site
+    assert replies(tg, FRIEND) == [
+        "No dates came back (none open, or the site is throttling). "
+        "Scheduled checks stay paused until 10:00 (2h 40m)."
+    ]
+    state = json.loads((live.state_dir / "state.json").read_text())
+    assert state["backoff_until"] == "2026-11-05T10:00:00+00:00"
+
+
+def test_check_reply_names_the_day_when_the_pause_ends_tomorrow(live, ais, tg, clock):
+    ais.fake.dates = []
+    clock.advance(hours=16, minutes=30)
+    run_check(live)  # 22:30, empty: pause until 01:30 tomorrow
+    clock.advance(minutes=10)
+    tg.fake.say(FRIEND, "/check")
+    bot.poll(live, 0)
+    assert replies(tg, FRIEND)[-1].endswith("Scheduled checks stay paused until Nov 6 01:30 (2h 50m).")
+
+
+def test_check_that_finds_dates_ends_the_pause(live, ais, tg, clock):
+    ais.fake.dates = []
+    clock.advance(hours=1)
+    run_check(live)
+    clock.advance(minutes=20)
+    ais.fake.dates = ["2027-09-01"]
+    tg.fake.say(FRIEND, "/check")
+    bot.poll(live, 0)
+    assert json.loads((live.state_dir / "state.json").read_text())["backoff_until"] is None
 
 
 def test_check_that_fails(live, ais, tg, clock):

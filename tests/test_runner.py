@@ -85,11 +85,36 @@ def test_empty_answer_pauses_for_backoff_hours(started, ais, clock):
     ais.fake.dates = []
     assert run_check(started)[1].kind == "empty"
     clock.advance(hours=1)
-    assert run_check(started)[1].detail.startswith("backing off until")
+    assert run_check(started)[1].detail == "backing off until 10:00 (2h 0m)"
     clock.advance(hours=2)
     ais.fake.dates = ["2027-09-01"]
     assert run_check(started)[1].kind == "ok"
     assert ais.fake.days_requests() == 3
+
+
+@pytest.mark.parametrize("via", ["check-now", "manual"])
+def test_local_force_with_an_empty_answer_renews_the_pause(started, ais, clock, capsys, via):
+    clock.advance(hours=1)
+    ais.fake.dates = []
+    run_check(started)  # 07:00: pause until 10:00
+    clock.advance(hours=1)
+    assert run_check(started, force=True, via=via)[1].kind == "empty"
+    assert state(started)["backoff_until"] == "2026-11-05T11:00:00+00:00"
+    assert f"check: empty  no dates in reply; scheduled checks pause until 11:00 (3h 0m) [{via}]" in (
+        capsys.readouterr().out
+    )
+
+
+def test_telegram_check_with_an_empty_answer_keeps_the_pause(started, ais, clock, capsys):
+    clock.advance(hours=1)
+    ais.fake.dates = []
+    run_check(started)  # 07:00: pause until 10:00
+    clock.advance(hours=1)
+    assert run_check(started, force=True, via="telegram:42")[1].kind == "empty"
+    assert state(started)["backoff_until"] == "2026-11-05T10:00:00+00:00"
+    assert "the pause until 10:00 (2h 0m) stays as it was [telegram:42]" in capsys.readouterr().out
+    clock.advance(minutes=30)
+    assert run_check(started)[1].detail == "backing off until 10:00 (1h 30m)"  # cron still waits
 
 
 def test_throttled_returns_1_and_pauses(started, ais, clock):

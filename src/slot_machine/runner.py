@@ -10,8 +10,16 @@ from . import sitewatch, telegram, timeutil
 from .ais import FetchResult, fetch_dates
 from .config import Config
 from .store import BOT_FILE, load_json, save_json, single_instance
-from .timeutil import fmt_clock, fmt_dur, iso, log, parse_ts
+from .timeutil import fmt_dur, fmt_until, iso, log, parse_ts
 from .watcher import WELCOMES, Msg, process, process_ping, record_expiry_told, unmark_welcomed
+
+
+def starts_pause(via: str) -> bool:
+    """Whether an empty answer from a check started this way pauses scheduled checks.
+    A Telegram /check never starts or extends the pause: anyone listed may send it, and
+    a quick look shouldn't hold off the schedule. Cron, check-now, manual, set-cookie and
+    a renewal do, as before (a local --force is the owner choosing to)."""
+    return not via.startswith("telegram:")
 
 
 def session_cfg(cfg: Config, state: dict) -> Config:
@@ -155,15 +163,25 @@ def run_check(
         elif state.get("session_expired_at"):
             res = FetchResult("skipped", detail="session expired (run --set-cookie)")
         elif backoff and now < backoff and not force:
-            res = FetchResult("skipped", detail=f"backing off until {fmt_clock(backoff, cfg)}")
+            res = FetchResult("skipped", detail=f"backing off until {fmt_until(backoff, now, cfg)}")
         else:
             res = fetch_dates(session_cfg(cfg, state), cookies)
 
         if res.cookies is not None and res.cookies != cookies:
             save_json(cookie_path, res.cookies)
         alert_before = load_json(cfg.state_dir / BOT_FILE, {}).get("alert_before", {})
-        deliver(cfg, state, site_msgs + process(state, res, now, cfg, alert_before), dry_run)
+        msgs = process(state, res, now, cfg, alert_before, pause_on_empty=starts_pause(via))
+        deliver(cfg, state, site_msgs + msgs, dry_run)
         if not dry_run:
             save_json(state_path, state)
-        log(f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip() + f" [{via}]")
+        line = f"check: {res.kind} {res.dates[0] if res.dates else ''} {res.detail}".rstrip()
+        if res.kind == "empty":
+            backoff = parse_ts(state.get("backoff_until"))
+            if starts_pause(via):
+                line += f"; scheduled checks pause until {fmt_until(backoff, now, cfg)}"
+            elif backoff and backoff > now:
+                line += f"; the pause until {fmt_until(backoff, now, cfg)} stays as it was"
+            else:
+                line += "; no pause from a Telegram /check"
+        log(f"{line} [{via}]")
         return (0 if res.kind in ("ok", "empty", "skipped") else 1), res

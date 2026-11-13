@@ -16,13 +16,13 @@ from datetime import date, timedelta
 from . import sitewatch, telegram, timeutil
 from .ais import FetchResult
 from .config import Config
-from .messages import esc, session_line
+from .messages import esc, pause_until, session_line
 from .renew_link import renew_link
 from .runner import run_check
 from .store import BOT_FILE, load_json, save_json, single_instance  # BOT_FILE: offset, last /check,
 
 # chats seen outside the list, and each chat's own alert cutoff (alert_before)
-from .timeutil import DATE_RE, fmt_clock, fmt_day, fmt_dur, fmt_short, iso, local, log, parse_ts
+from .timeutil import DATE_RE, fmt_clock, fmt_day, fmt_dur, fmt_short, fmt_until, iso, local, log, parse_ts
 from .watcher import alert_cutoff, current_earliest
 
 LOCK_NAME = ".telegram.lock"  # one poller at a time; separate from the check lock
@@ -114,10 +114,12 @@ def check(cfg: Config, bot: dict, chat_id: str) -> str:
         )
     bot["last_check_at"] = iso(now)
     _, res = run_check(cfg, force=True, via=f"telegram:{chat_id}")
-    return check_reply(cfg, res, now)
+    return check_reply(cfg, res, now, pause_until(load_json(cfg.state_dir / "state.json", {}), now))
 
 
-def check_reply(cfg: Config, res: FetchResult | None, now) -> str:
+def check_reply(cfg: Config, res: FetchResult | None, now, paused_until=None) -> str:
+    """`paused_until`: the end of the pause of scheduled checks, if one is on. A /check
+    leaves it as it was (runner.starts_pause)."""
     if res is None:
         return "Another check is running right now. Its result arrives as the usual alerts."
     if res.kind == "ok":
@@ -126,9 +128,12 @@ def check_reply(cfg: Config, res: FetchResult | None, now) -> str:
             "If it's sooner than before, everyone also gets the usual alert."
         )
     if res.kind == "empty":
+        nothing = "No dates came back (none open, or the site is throttling)."
+        if paused_until:
+            return f"{nothing} Scheduled checks stay paused until {fmt_until(paused_until, now, cfg)}."
         return (
-            "No dates came back (none open, or the site is throttling). "
-            f"Scheduled checks pause for {fmt_dur(cfg.backoff_hours * 3600)}."
+            f"{nothing} Scheduled checks go on as usual; if the next one also gets none, they pause "
+            f"for {fmt_dur(cfg.backoff_hours * 3600)}."
         )
     if res.kind == "expired" or "session expired" in res.detail or "no session cookie" in res.detail:
         return "The visa-site session has ended, so nothing was checked. Sign in again to renew it: /renew says how."
