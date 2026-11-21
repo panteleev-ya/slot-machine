@@ -4,11 +4,12 @@
 # contacts the real visa site or Telegram.   Usage: make smoke-pi
 set -euo pipefail
 
-PI=${PI:-yarikp@yarikos.local}
 SSH_KEY=${SSH_KEY:-$HOME/.ssh/pi}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# user@host: PI if given, else SERVER_USER/SERVER_HOST from config/slot-machine.env
+PI=${PI:-$(python3 "$ROOT/deploy/sync_config.py" --server)}
 
-ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
+ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 "$PI" "$@"; }
 
 tmp=$(ssh_pi 'mktemp -d /tmp/slot-machine-smoke.XXXXXX')
 ssh_pi "cat > $tmp/fakes.py" < "$ROOT/tests/fakes.py"

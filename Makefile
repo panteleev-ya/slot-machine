@@ -1,8 +1,11 @@
-# slot-machine: develop on the Mac, run on the Pi.
-PI      ?= yarikp@yarikos.local
-SSH_KEY ?= $(HOME)/.ssh/pi
-SSH     := ssh -i $(SSH_KEY) -o IdentitiesOnly=yes -o LogLevel=ERROR
+# slot-machine: develop on the Mac, run on the server (SERVER_HOST in config/slot-machine.env).
 PYTHON  ?= python3
+# user@host from SERVER_USER/SERVER_HOST, read only when a target needs it; PI=user@host overrides.
+PI      ?= $(shell $(PYTHON) deploy/sync_config.py --server)
+SERVER   = $(or $(PI),$(error No server to connect to (see above)))
+SSH_KEY ?= $(HOME)/.ssh/pi
+# ConnectTimeout: an unreachable server fails in seconds instead of hanging
+SSH     := ssh -i $(SSH_KEY) -o IdentitiesOnly=yes -o LogLevel=ERROR -o ConnectTimeout=10
 VENV    := .venv
 APP     := dist/slot-machine
 REMOTE  := .local/bin/slot-machine
@@ -20,7 +23,7 @@ help:
 	@echo "  make build          build the single-file zipapp $(APP)"
 	@echo "  make config         create/refresh config/slot-machine.env (git-ignored) from the template"
 	@echo "  make edit-config    the same, then open it in \$$EDITOR"
-	@echo "On the Pi ($(PI)):"
+	@echo "On the server (SERVER_HOST in your settings, or PI=user@host):"
 	@echo "  make deploy         build, install the app, upload your settings (cron untouched)"
 	@echo "  make push-config    upload only your settings"
 	@echo "  make smoke-pi       run the installed app against fake servers"
@@ -32,7 +35,7 @@ help:
 	@echo "  make renew-token    set up the renewal page's secret (copied for the Chrome extension)"
 	@echo "  make share-extension  zip the Chrome extension for someone else, current token on the clipboard"
 	@echo "  make status         / make logs"
-	@echo "  make signin            Mac Chrome signs in and renews the Pi session"
+	@echo "  make signin            Mac Chrome signs in and renews the server's session"
 	@echo "  make signin-linux-check  Linux Chrome in Docker, without opening the visa site"
 
 $(VENV)/bin/pytest: requirements-dev.txt
@@ -60,55 +63,55 @@ clean:
 	rm -rf build dist .pytest_cache .ruff_cache
 
 deploy: build
-	PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh
+	PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/deploy.sh
 
 cron-on:
-	PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --cron-on
+	PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --cron-on
 
 cron-off:
-	PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --cron-off
+	PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --cron-off
 
 smoke-pi:
-	PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/smoke-pi.sh
+	PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/smoke-pi.sh
 
 status:
-	@$(SSH) $(PI) '$(REMOTE) --status'
+	@$(SSH) $(SERVER) '$(REMOTE) --status'
 
 logs:
-	@$(SSH) $(PI) 'tail -n 50 $(LOG) 2>/dev/null || echo "no log yet (cron writes it)"'
+	@$(SSH) $(SERVER) 'tail -n 50 $(LOG) 2>/dev/null || echo "no log yet (cron writes it)"'
 
 config:
 	@$(PYTHON) deploy/sync_config.py
 
 edit-config: config
 	@$${EDITOR:-nano} config/slot-machine.env
-	@echo "Saved locally. 'make push-config' sends it to the Pi."
+	@echo "Saved locally. 'make push-config' sends it to the server."
 
 push-config:
-	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
+	@PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
 
 find-chat-id:
-	@$(SSH) $(PI) '$(REMOTE) --find-chat-id'
+	@$(SSH) $(SERVER) '$(REMOTE) --find-chat-id'
 
 test-telegram:
-	@$(SSH) $(PI) '$(REMOTE) --test-telegram'
+	@$(SSH) $(SERVER) '$(REMOTE) --test-telegram'
 
 set-cookie:
-	@$(SSH) -t $(PI) '$(REMOTE) --set-cookie'
+	@$(SSH) -t $(SERVER) '$(REMOTE) --set-cookie'
 
 discover:
-	@$(SSH) $(PI) '$(REMOTE) --discover'
+	@$(SSH) $(SERVER) '$(REMOTE) --discover'
 
 # One real check now, outside cron. --force skips MIN_INTERVAL_MINUTES and any back-off;
 # the run lock still keeps it from overlapping a cron run. Output also goes to the log.
 check-now:
-	@$(SSH) $(PI) 'set -o pipefail; $(REMOTE) --force --via check-now 2>&1 | tee -a $(LOG)'
+	@$(SSH) $(SERVER) 'set -o pipefail; $(REMOTE) --force --via check-now 2>&1 | tee -a $(LOG)'
 
 # Renewal page secret: new RENEW_TOKEN (and RENEW_URL if empty) in your local settings, copied to the
-# clipboard for the Chrome extension, then pushed to the Pi. Rotating it needs the extension updated.
+# clipboard for the Chrome extension, then pushed to the server. Rotating it needs the extension updated.
 renew-token: config
 	@$(PYTHON) deploy/renew_token.py
-	@PI=$(PI) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
+	@PI=$(SERVER) SSH_KEY=$(SSH_KEY) deploy/deploy.sh --push-config
 
 # Mac Chrome. Signs in and posts the session. Ctrl+C stops it. Options go on the python
 # command: PYTHONPATH=src python3 -m signin --every 50 --jitter 3

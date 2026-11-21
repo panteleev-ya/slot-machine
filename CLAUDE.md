@@ -31,6 +31,14 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   `make push-config` / `make deploy` upload it to the Pi. `CRON_SCHEDULE` is read only by `deploy.sh`
   (via `sync_config.py --cron-schedule`), never by the app; it is validated to five plain crontab
   fields because it is written into the Pi's crontab through a remote shell.
+- Server address: `SERVER_HOST` / `SERVER_USER` in the settings (like CRON_SCHEDULE, not used by the app).
+  The Makefile (`PI ?= $(shell sync_config.py --server)`, read only when a target needs it), deploy.sh,
+  smoke-pi.sh and `src/signin/docker/run.sh` (`--server-host`, for `--add-host`) take it from there;
+  `PI=user@host` overrides. Both are validated (no shell/ssh syntax) since they land in command lines.
+  ssh has `ConnectTimeout=10`, so an unreachable server fails instead of hanging.
+- `$NAME` / `${NAME}` in a settings value is another setting's value (`config.expand_refs`, also used by
+  `signin.mac.load_renew_settings`); `$$` = `$`; an empty or missing reference is a config error.
+  `make renew-token` fills an empty RENEW_URL with `http://$SERVER_HOST:8080`.
 
 - Telegram fanout: `TELEGRAM_CHAT_ID` is a comma list; `Msg.to` picks recipients (None = all;
   `error` goes to the first chat only; `expired` to all, since anyone listed may renew). `state["welcomed_chats"]` tracks who got a baseline
@@ -106,7 +114,10 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
 - Tests and smoke runs talk only to `tests/fakes.py`.
 
 ## Host
-- Raspberry Pi Zero 2 W `yarikos` on the home network (`yarikos.local`, 10.0.0.85), running the
+- Live now (2026-11-21): mini-PC `yarikp-server` (`yarikp-server.local`, 10.0.0.127), Debian 13 trixie,
+  x86_64, Python 3.13, cron active, system TZ America/Los_Angeles. Same user `yarikp`, key `~/.ssh/pi`,
+  same install layout. Where these notes say "the Pi", read "the server" (`SERVER_HOST`).
+- Before: Raspberry Pi Zero 2 W `yarikos` on the home network (`yarikos.local`, 10.0.0.85), running the
   `pi-gen-yarik-os` image (Raspberry Pi OS Lite, Debian 13 trixie, arm64). Python 3.13, cron
   (active), systemd-timesyncd, tzdata, ca-certificates present. System TZ Europe/London.
 - Access: `ssh -i ~/.ssh/pi -o IdentitiesOnly=yes yarikp@yarikos.local` (key auth; add

@@ -15,7 +15,13 @@ and updated comments show up and nothing you set is lost:
   * comments you wrote in the local file are not kept (put notes in the template).
 
 Then it validates the result with the app's own parser, so a bad value is caught
-on the Mac before it reaches the Pi. Exit code 1 means invalid settings.
+on the Mac before it reaches the server. Exit code 1 means invalid settings.
+
+Read-only modes for make and the deploy scripts (validated, one value on stdout):
+
+    sync_config.py --cron-schedule [LOCAL]   CRON_SCHEDULE (the default without settings)
+    sync_config.py --server [LOCAL]          SERVER_USER@SERVER_HOST, for ssh
+    sync_config.py --server-host [LOCAL]     SERVER_HOST alone
 """
 
 from __future__ import annotations
@@ -93,21 +99,35 @@ def sync(template: Path, local: Path) -> int:
     return 0
 
 
-def cron_schedule(local: Path) -> int:
-    """Print the validated CRON_SCHEDULE from the local settings (the default without them)."""
+NO_SERVER = (
+    "No server set: put SERVER_HOST (and SERVER_USER) in config/slot-machine.env "
+    "(make edit-config), or pass PI=user@host"
+)
+MODES = {
+    "--cron-schedule": lambda cfg: cfg.cron_schedule,
+    "--server": lambda cfg: cfg.ssh_target,
+    "--server-host": lambda cfg: cfg.server_host,
+}
+
+
+def print_value(mode: str, local: Path) -> int:
+    """Print one validated value from the local settings (environment overrides apply)."""
     try:
-        print(load_config(local).cron_schedule)
+        value = MODES[mode](load_config(local))
     except SystemExit as e:
         print(e, file=sys.stderr)
         return 1
+    if not value:
+        print(NO_SERVER, file=sys.stderr)
+        return 1
+    print(value)
     return 0
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--cron-schedule"]:
-        sys.exit(
-            cron_schedule(Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "config" / "slot-machine.env")
-        )
+    if sys.argv[1:2] and sys.argv[1] in MODES:
+        local = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "config" / "slot-machine.env"
+        sys.exit(print_value(sys.argv[1], local))
     args = [Path(a) for a in sys.argv[1:3]]
     template = args[0] if args else ROOT / "config" / "slot-machine.env.example"
     local = args[1] if len(args) > 1 else ROOT / "config" / "slot-machine.env"

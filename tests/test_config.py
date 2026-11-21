@@ -163,3 +163,63 @@ def test_cron_schedule(tmp_path, value, expected):
 def test_cron_schedule_rejects_anything_but_five_plain_fields(tmp_path, value):
     with pytest.raises(SystemExit, match="CRON_SCHEDULE must be the five crontab time fields"):
         load_config(write(tmp_path, f"CRON_SCHEDULE={value}\n"))
+
+
+# --------------------------------------------------------------------------- server and $NAME references
+
+
+def test_server_settings_give_the_ssh_target(tmp_path):
+    cfg = load_config(write(tmp_path, "SERVER_HOST=yarikp-server.local\nSERVER_USER=yarikp\n"))
+    assert cfg.ssh_target == "yarikp@yarikp-server.local"
+    assert load_config(write(tmp_path, "SERVER_HOST=10.0.0.127\n")).ssh_target == "10.0.0.127"
+    assert load_config(write(tmp_path, "SERVER_USER=yarikp\n")).ssh_target == ""
+
+
+@pytest.mark.parametrize(
+    "line, error",
+    [
+        ("SERVER_HOST=-oProxyCommand=id", "SERVER_HOST must be"),
+        ("SERVER_HOST=host; id", "SERVER_HOST must be"),
+        ("SERVER_HOST=a b", "SERVER_HOST must be"),
+        ("SERVER_HOST=user@host", "SERVER_HOST must be"),
+        ("SERVER_USER=-l", "SERVER_USER must be"),
+        ("SERVER_USER=me$(id)", "SERVER_USER must be"),
+    ],
+)
+def test_server_settings_refuse_shell_or_ssh_syntax(tmp_path, line, error):
+    with pytest.raises(SystemExit, match=error):
+        load_config(write(tmp_path, line + "\n"))
+
+
+def test_renew_url_follows_server_host(tmp_path):
+    token = "T" * 43
+    for url in ("http://$SERVER_HOST:8080", "http://${SERVER_HOST}:8080/"):
+        cfg = load_config(write(tmp_path, f"RENEW_URL={url}\nSERVER_HOST=box.local\nRENEW_TOKEN={token}\n"))
+        assert cfg.renew_url == "http://box.local:8080"
+
+
+def test_references_use_environment_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("SERVER_HOST", "other.local")
+    cfg = load_config(
+        write(
+            tmp_path, f"SERVER_HOST=box.local\nRENEW_URL=http://$SERVER_HOST:8080\nRENEW_TOKEN={'T' * 43}\n"
+        )
+    )
+    assert cfg.renew_url == "http://other.local:8080"
+
+
+def test_double_dollar_is_a_literal_dollar(tmp_path):
+    assert load_config(write(tmp_path, "LOCATION_LABEL=US$$ embassy\n")).label == "US$ embassy"
+
+
+@pytest.mark.parametrize(
+    "text, error",
+    [
+        ("RENEW_URL=http://$SERVER_HOST:8080\n", "RENEW_URL uses \\$SERVER_HOST, but SERVER_HOST is not set"),
+        ("SERVER_HOST=\nRENEW_URL=http://${SERVER_HOST}:8080\n", "SERVER_HOST is not set"),
+        ("SERVER_HOST=$SERVER_USER\nSERVER_USER=$SERVER_HOST\n", "refers back to itself"),
+    ],
+)
+def test_bad_references_are_config_errors(tmp_path, text, error):
+    with pytest.raises(SystemExit, match=error):
+        load_config(write(tmp_path, text))
