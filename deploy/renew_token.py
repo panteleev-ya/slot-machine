@@ -3,8 +3,8 @@
 
     python3 deploy/renew_token.py [--copy] [LOCAL]     (default: config/slot-machine.env)
 
-Writes a new random RENEW_TOKEN, sets RENEW_URL to http://yarikos.local:8080 if it's
-empty, and copies the token to the macOS clipboard (pbcopy) for the Chrome extension's
+Writes a new random RENEW_TOKEN, sets RENEW_URL to http://$SERVER_HOST:8080 if it's
+empty (it then follows SERVER_HOST), and copies the token to the macOS clipboard (pbcopy) for the Chrome extension's
 options. The token is never printed. `make renew-token` runs this, then push-config.
 Rotating it means pasting the new one into every installed extension again.
 
@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_URL = "http://yarikos.local:8080"
+DEFAULT_URL = "http://$SERVER_HOST:8080"
 
 
 def set_values(text: str, token: str) -> tuple[str, str]:

@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from slot_machine import sitewatch
-from slot_machine.config import DEFAULT_UA
+from slot_machine.config import DEFAULT_UA, expand_refs
 from slot_machine.timeutil import fmt_dur, parse_ts
 
 SIGN_IN_URL = "https://ais.usvisa-info.com/en-kz/niv/users/sign_in"
@@ -162,15 +162,18 @@ def private_file(path: Path) -> None:
 
 
 def load_renew_settings(path: Path) -> tuple[str, str]:
-    """Pi address and bearer token. The token stays in memory and is never printed."""
+    """Server address and bearer token. The token stays in memory and is never printed."""
     private_file(path)
-    data = parse_env(path.read_text(encoding="utf-8"))
+    try:
+        data = expand_refs(parse_env(path.read_text(encoding="utf-8")))  # RENEW_URL=http://$SERVER_HOST:8080
+    except ValueError as e:
+        raise ProbeError(f"{display_path(path)}: {e}") from None
     url = data.get("RENEW_URL", "").strip().rstrip("/")
     token = data.get("RENEW_TOKEN", "").strip()
     if not url or not token:
         raise ProbeError(f"Set RENEW_URL and RENEW_TOKEN in {display_path(path)} (make renew-token)")
     if not url.startswith("http://"):
-        raise ProbeError("RENEW_URL must be the Pi's http address")
+        raise ProbeError("RENEW_URL must be the server's http address")
     return url, token
 
 

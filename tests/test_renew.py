@@ -427,16 +427,24 @@ def test_token_script_copy_needs_a_token(tmp_path):
 
 
 def test_token_script_fills_both_values_without_printing_the_token(tmp_path):
-    local = write_env(tmp_path, "# keep\nTELEGRAM_CHAT_ID=42\nRENEW_URL=\nRENEW_TOKEN=\n")
+    local = write_env(
+        tmp_path, "# keep\nTELEGRAM_CHAT_ID=42\nSERVER_HOST=yarikp-server.local\nRENEW_URL=\nRENEW_TOKEN=\n"
+    )
     proc = run_token_script(local)
     assert proc.returncode == 0, proc.stderr
     text = local.read_text()
     token = next(line.split("=", 1)[1] for line in text.splitlines() if line.startswith("RENEW_TOKEN="))
     assert len(token) >= 43 and token not in proc.stdout + proc.stderr
-    assert "RENEW_URL=http://yarikos.local:8080\n" in text and "# keep\nTELEGRAM_CHAT_ID=42\n" in text
+    assert "RENEW_URL=http://$SERVER_HOST:8080\n" in text and "# keep\nTELEGRAM_CHAT_ID=42\n" in text
     assert local.stat().st_mode & 0o777 == 0o600
-    cfg = load_config(local)  # valid as written
-    assert cfg.renew_token == token
+    cfg = load_config(local)  # valid as written, and the URL follows SERVER_HOST
+    assert cfg.renew_token == token and cfg.renew_url == "http://yarikp-server.local:8080"
+
+
+def test_token_script_keeps_a_url_you_set(tmp_path):
+    local = write_env(tmp_path, "RENEW_URL=http://10.0.0.127:8080\nRENEW_TOKEN=\n")
+    assert run_token_script(local).returncode == 0
+    assert "RENEW_URL=http://10.0.0.127:8080\n" in local.read_text()
 
 
 def test_token_script_rotates_and_keeps_a_custom_url(tmp_path):

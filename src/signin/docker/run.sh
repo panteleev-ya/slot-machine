@@ -32,15 +32,21 @@ fi
 
 docker build --platform "$platform" -f src/signin/docker/Dockerfile -t "$tag" .
 
-pi_ip="$(python3 -c 'import socket; print(socket.gethostbyname("yarikos.local"))' 2>/dev/null || true)"
+# The container can't resolve .local names: give it SERVER_HOST's address as the Mac sees it.
+# (SERVER_HOST is validated: a plain host name or address, safe in these command lines.)
+server_host="$(python3 deploy/sync_config.py --server-host 2>/dev/null || true)"
+server_ip=""
+if [ -n "$server_host" ]; then
+    server_ip="$(python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "$server_host" 2>/dev/null || true)"
+fi
 add_host=""
-case "$pi_ip" in
+case "$server_ip" in
     *.*.*.*)
-        add_host="--add-host=yarikos.local:${pi_ip}"
-        echo "Container will reach yarikos.local at ${pi_ip}."
+        add_host="--add-host=${server_host}:${server_ip}"
+        echo "Container will reach ${server_host} at ${server_ip}."
         ;;
     *)
-        echo "Could not resolve yarikos.local from the Mac. A sign-in run may not reach the Pi."
+        echo "Could not resolve SERVER_HOST (${server_host:-not set}) from the Mac. A sign-in run may not reach the server."
         ;;
 esac
 

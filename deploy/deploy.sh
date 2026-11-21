@@ -8,9 +8,10 @@
 # Nothing here needs sudo. Without a local config/slot-machine.env, the Pi's settings are never touched.
 set -euo pipefail
 
-PI=${PI:-yarikp@yarikos.local}
 SSH_KEY=${SSH_KEY:-$HOME/.ssh/pi}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# user@host: PI if given, else SERVER_USER/SERVER_HOST from config/slot-machine.env
+PI=${PI:-$(python3 "$ROOT/deploy/sync_config.py" --server)}
 APP="$ROOT/dist/slot-machine"
 LOCAL_CONFIG=${LOCAL_CONFIG:-$ROOT/config/slot-machine.env}
 MARK="# slot-machine (managed by deploy.sh)"
@@ -18,7 +19,7 @@ BOT_MARK="# slot-machine telegram (managed by deploy.sh)"  # the /check poller
 SERVE_MARK="# slot-machine renew (managed by deploy.sh)"  # the renewal page; exits if already running
 PING_MARK="# slot-machine ping (managed by deploy.sh)"  # pings the visa site while it looks down
 
-ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR "$PI" "$@"; }
+ssh_pi() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 "$PI" "$@"; }
 
 deploy() {
     [[ -f "$APP" ]] || { echo "No $APP - run 'make build' first." >&2; exit 1; }

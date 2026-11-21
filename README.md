@@ -38,9 +38,12 @@ It only reads. It never books, cancels or reschedules.
 ## How it runs
 
 One Python file with no dependencies (a zipapp of `src/slot_machine`), run hourly by the
-`yarikp` user's crontab on the Raspberry Pi `yarikos`. No sudo needed.
+user's crontab on the server named by `SERVER_HOST` in your settings (now the mini-PC
+`yarikp-server.local`; it used to be the Raspberry Pi `yarikos`). No sudo needed. Every `make` target
+that talks to the server reads `SERVER_USER@SERVER_HOST` from `config/slot-machine.env`;
+`make status PI=user@host` overrides it for one command. Below, "the Pi" means that server.
 
-| What | On the Pi |
+| What | On the server |
 |---|---|
 | Program | `~/.local/bin/slot-machine` |
 | Settings | `~/.config/slot-machine/slot-machine.env` (chmod 600) |
@@ -56,14 +59,16 @@ hands it the `_yatri_session` cookie; the Pi uses that session until the site en
 
 ## Setup (all from the Mac)
 
-`make deploy` has already installed the app on the Pi.
+`make deploy` has already installed the app on the server. First set `SERVER_HOST` and `SERVER_USER`
+(`make edit-config`): everything below reaches the server through them.
 
 Settings live in two files in `config/`. The **template** `slot-machine.env.example` is committed: it
 lists every setting with its comment. **Your copy** `slot-machine.env` holds your values (token, IDs);
 it is git-ignored and chmod 600. `make edit-config` creates or refreshes your copy from the template
 (keeping your values, adding any new settings) and opens it in `$EDITOR`. `make push-config` validates
-it and uploads it to the Pi; `make deploy` does that too. Add new settings to the template, not to
-your copy: refreshing keeps only values.
+it and uploads it to the server; `make deploy` does that too. Add new settings to the template, not to
+your copy: refreshing keeps only values. A value can use another setting as `$NAME` or `${NAME}`:
+`RENEW_URL=http://$SERVER_HOST:8080` follows the server, a plain URL doesn't.
 
 1. **Telegram.** Message @BotFather, send `/newbot`, copy the token. `make edit-config`, set
    `TELEGRAM_BOT_TOKEN`, then `make push-config`. Send your bot any message, run `make find-chat-id`,

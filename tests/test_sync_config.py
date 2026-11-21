@@ -145,3 +145,17 @@ def test_cron_schedule_mode_refuses_bad_value(tmp_path):
     proc = run_script("--cron-schedule", local)
     assert proc.returncode == 1 and proc.stdout == ""
     assert "CRON_SCHEDULE must be" in proc.stderr
+
+
+def test_server_modes_print_target_and_host(tmp_path):
+    local = tmp_path / "x.env"
+    local.write_text("SERVER_HOST=yarikp-server.local\nSERVER_USER=yarikp\n")
+    local.chmod(0o600)
+    assert run_script("--server", local).stdout == "yarikp@yarikp-server.local\n"
+    assert run_script("--server-host", local).stdout == "yarikp-server.local\n"
+
+
+def test_server_mode_without_a_host_says_how_to_set_one(tmp_path):
+    proc = run_script("--server", tmp_path / "missing.env")
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert "SERVER_HOST" in proc.stderr and "PI=user@host" in proc.stderr

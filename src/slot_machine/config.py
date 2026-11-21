@@ -24,6 +24,12 @@ DEFAULT_CRON = "17 * * * *"
 _CRON_ITEM = r"(\*|[0-9A-Za-z]+(-[0-9A-Za-z]+)?)(/[0-9]+)?"
 _CRON_FIELD = rf"{_CRON_ITEM}(,{_CRON_ITEM})*"
 CRON_RE = re.compile(rf"^{_CRON_FIELD}( {_CRON_FIELD}){{4}}$")
+# The server goes into ssh command lines on the Mac (make, deploy.sh): a host name or address
+# and a login name, never anything a shell or ssh would read as more (no spaces, ;, $, leading -).
+HOST_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]*$")
+USER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+# $NAME or ${NAME} in a value refers to another setting; $$ is a literal $.
+REF_RE = re.compile(r"\$(?:\$|\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -59,6 +65,8 @@ class Config:
     backoff_hours: float = 3
     error_alert_after: int = 3
     cron_schedule: str = DEFAULT_CRON  # read by deploy.sh, not by the app
+    server_host: str = ""  # the machine that runs the app, for make/deploy.sh; not used by the app
+    server_user: str = ""  # its login; empty = ssh's own default
     check_cooldown_minutes: float = 2  # between Telegram /check commands
     renew_url: str = ""  # the renewal page as your devices reach it; empty = off
     renew_token: str = ""  # shared secret of the page and the Chrome extension
@@ -80,6 +88,13 @@ class Config:
     def owner_chat(self) -> str | None:
         """Gets the housekeeping alerts (session ended, checks failing)."""
         return self.chat_ids[0] if self.chat_ids else None
+
+    @property
+    def ssh_target(self) -> str:
+        """user@host (or just host) for ssh; empty without SERVER_HOST."""
+        if not self.server_host:
+            return ""
+        return f"{self.server_user}@{self.server_host}" if self.server_user else self.server_host
 
     @property
     def appointment_url(self) -> str:
@@ -105,6 +120,8 @@ ENV_KEYS = {
     "BACKOFF_HOURS": ("backoff_hours", float),
     "ERROR_ALERT_AFTER": ("error_alert_after", int),
     "CRON_SCHEDULE": ("cron_schedule", str),
+    "SERVER_HOST": ("server_host", str),
+    "SERVER_USER": ("server_user", str),
     "TELEGRAM_CHECK_COOLDOWN_MINUTES": ("check_cooldown_minutes", float),
     "RENEW_URL": ("renew_url", str),
     "RENEW_TOKEN": ("renew_token", str),
@@ -133,6 +150,40 @@ def read_env_file(path: Path) -> dict:
     return values
 
 
+def expand_refs(values: dict[str, str]) -> dict[str, str]:
+    """Replace $NAME / ${NAME} in each value with the value of setting NAME (itself expanded).
+
+    RENEW_URL=http://$SERVER_HOST:8080 follows SERVER_HOST. $$ is a literal $. Raises ValueError
+    for a reference to a setting that isn't there (or is empty) and for a loop."""
+    done: dict[str, str] = {}
+
+    def resolve(key: str, chain: tuple[str, ...]) -> str:
+        if key in done:
+            return done[key]
+        if key in chain:
+            raise ValueError(f"{' -> '.join((*chain, key))} refers back to itself")
+
+        def sub(m: re.Match) -> str:
+            name = m.group(1) or m.group(2)
+            if name is None:
+                return "$"
+            if not values.get(name, "").strip():
+                raise ValueError(f"{key} uses ${name}, but {name} is not set")
+            return resolve(name, (*chain, key)).strip()
+
+        done[key] = REF_RE.sub(sub, values[key])
+        return done[key]
+
+    return {key: resolve(key, ()) for key in values}
+
+
+def _check_server(cfg: Config) -> None:
+    if cfg.server_host and not HOST_RE.match(cfg.server_host):
+        raise SystemExit("Config error: SERVER_HOST must be a host name or address, like yarikp-server.local")
+    if cfg.server_user and not USER_RE.match(cfg.server_user):
+        raise SystemExit("Config error: SERVER_USER must be a login name, like yarikp")
+
+
 def _check_renewal(cfg: Config) -> None:
     cfg.renew_url = cfg.renew_url.rstrip("/")
     if not cfg.renew_url:
@@ -144,7 +195,7 @@ def _check_renewal(cfg: Config) -> None:
         port = None
     if parts.scheme != "http" or not parts.hostname or not port or parts.path or parts.query:
         raise SystemExit(
-            "Config error: RENEW_URL must look like http://yarikos.local:8080 (http, host and port only)"
+            "Config error: RENEW_URL must look like http://$SERVER_HOST:8080 (http, host and port only)"
         )
     if port < 1024:
         raise SystemExit("Config error: RENEW_URL needs a port of 1024 or more (lower ones need root)")
@@ -157,6 +208,10 @@ def _check_renewal(cfg: Config) -> None:
 def load_config(path: Path) -> Config:
     values = read_env_file(path)
     values.update({k: v for k, v in os.environ.items() if k in ENV_KEYS})
+    try:
+        values = expand_refs(values)
+    except ValueError as e:
+        raise SystemExit(f"Config error: {e}") from None
     cfg = Config()
     for key, (attr, kind) in ENV_KEYS.items():
         val = values.get(key, "").strip()
@@ -183,6 +238,7 @@ def load_config(path: Path) -> Config:
             raise SystemExit(
                 f"Config error: TELEGRAM_CHAT_ID {chat!r} should be a number (comma-separate several chats)"
             )
+    _check_server(cfg)
     _check_renewal(cfg)
     cfg.cron_schedule = " ".join(cfg.cron_schedule.split())
     if not CRON_RE.match(cfg.cron_schedule):

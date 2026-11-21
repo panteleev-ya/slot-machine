@@ -181,6 +181,16 @@ def test_renew_settings_need_a_private_file(probe, tmp_path):
     assert probe.load_renew_settings(path) == ("http://yarikos.local:8080", "sekret")
 
 
+def test_renew_settings_follow_server_host(probe, tmp_path):
+    path = tmp_path / "slot-machine.env"
+    path.write_text("SERVER_HOST=yarikp-server.local\nRENEW_URL=http://${SERVER_HOST}:8080\nRENEW_TOKEN=t\n")
+    path.chmod(0o600)
+    assert probe.load_renew_settings(path) == ("http://yarikp-server.local:8080", "t")
+    path.write_text("SERVER_HOST=\nRENEW_URL=http://$SERVER_HOST:8080\nRENEW_TOKEN=t\n")
+    with pytest.raises(probe.ProbeError, match="SERVER_HOST is not set"):
+        probe.load_renew_settings(path)
+
+
 def test_session_body_is_the_extension_payload(probe):
     body = json.loads(probe.session_body("a" * 24, "Mozilla/5.0 Chrome"))
     assert body == {"cookie": "a" * 24, "user_agent": "Mozilla/5.0 Chrome"}
