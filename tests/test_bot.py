@@ -272,3 +272,40 @@ def test_commands_queued_while_offline_are_ignored(live, ais, tg, clock, capsys)
     assert ais.fake.days_requests() == 2  # only the owner's fresh one
     assert "/check from 77 is too old to act on; ignored" in capsys.readouterr().out
     assert json.loads((live.state_dir / "telegram.json").read_text())["seen_chats"] == {STRANGER: "stranger"}
+
+
+def test_status_shows_the_watch_without_a_request_or_other_chats(live, ais, tg, clock):
+    tg.fake.say(OWNER, "/set_alert_before 2027-10-01")
+    bot.poll(live, 0)
+    clock.advance(minutes=30)
+    tg.fake.say(FRIEND, "/status")
+    bot.poll(live, 0)
+    [reply] = replies(tg, FRIEND)
+    lines = reply.splitlines()
+    assert lines[:3] == [
+        "<b>Visa slot watch - Astana</b>",
+        "<b>Location:</b> Astana (facility 134, schedule 1234)",
+        "<b>Earliest:</b> Wed Sep 1, 2027 (in 300 days)",
+    ]
+    assert lines[3].startswith("<b>Last check:</b> ")
+    assert lines[4:6] == [
+        "<b>Session:</b> cookie saved; active for 30m",
+        "<b>Browser:</b> USER_AGENT setting",
+    ]
+    assert "<b>Alerts:</b> every sooner date (/set_alert_before); 2 chat(s) listed" in reply
+    assert OWNER not in reply and "2027-10-01" not in reply  # the owner's id and cutoff stay private
+    assert "Settings" not in reply and "State" not in reply
+    assert ais.fake.days_requests() == 1  # reads the saved state, asks the site nothing
+
+
+def test_status_after_the_session_ended(live, ais, tg, clock):
+    ais.fake.sessions.clear()
+    clock.advance(hours=1)
+    run_check(live)  # expires
+    tg.fake.messages.clear()
+    tg.fake.say(OWNER, "/set_alert_before 2027-10-01")
+    tg.fake.say(OWNER, "/status")
+    bot.poll(live, 0)
+    reply = replies(tg, OWNER)[-1]
+    assert "<b>Session:</b> cookie saved; EXPIRED since " in reply
+    assert "<b>Alerts:</b> dates before Oct 1, 2027 (/set_alert_before); 2 chat(s) listed" in reply

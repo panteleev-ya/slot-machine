@@ -28,6 +28,9 @@ U.S. Embassy in Astana on the AIS booking site, and reports to Telegram:
   no answer. Commands older than 10 minutes, such as ones sent while the Pi was offline, are ignored.
   A `/check` that gets no dates never starts or extends the pause of scheduled checks (the reply says
   until when they're paused, if they are); the next scheduled check decides.
+- **`/status` in Telegram** answers with what `make status` shows: earliest date, last check, the
+  session (active, or ended since when), the chat's own alert cutoff and whether the renewal page
+  runs. It only reads the saved state; nothing is sent to the visa site.
 - **`/set_alert_before YYYY-MM-DD`** in Telegram: sooner-date alerts *in that chat* only for dates before
   that day. `/set_alert_before off` for every sooner date again, `/set_alert_before` alone shows the
   setting. Each chat has its own, so nobody changes what someone else gets; `ALERT_ONLY_BEFORE` in the
@@ -155,6 +158,11 @@ profile is kept between Docker runs. If a cycle fails, the window is saved to
 Fifty minutes, plus or minus three, is the overnight pace: a session dies about an hour after
 sign-in. Twelve minutes is only for a short test.
 
+On the server the loop runs as the systemd user service `slot-machine-signin`, from its own copy of
+`src/` in `~/.local/share/slot-machine-signin/src`. `make deploy` refreshes that copy (after the
+settings) and restarts the service if it runs; it reads the settings when it starts. Its log:
+`journalctl --user -u slot-machine-signin` on the server.
+
 Day to day: `make status`, `make logs`. `make check-now` runs one check immediately, outside cron (it
 skips the interval and any throttle pause, and an empty answer starts a new pause, so use it sparingly). After a "session ended" alert: sign in
 again, `make set-cookie`.
@@ -176,7 +184,8 @@ src/slot_machine/
   watcher.py    the decision logic - pure, no I/O
   messages.py   message text
   ais.py        the visa-site client
-  bot.py        Telegram commands (/check, /set_alert_before, /renew)
+  bot.py        Telegram commands (/check, /status, /set_alert_before, /renew)
+  status.py     the status report (--status and /status)
   renew.py      the renewal page (HTTP server); renew_link.py the alert's one-session link
   telegram.py   Bot API
   config.py     settings file + environment, XDG paths

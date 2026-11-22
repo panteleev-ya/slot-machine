@@ -545,7 +545,7 @@ def test_set_cookie_goes_back_to_the_setting(tied, ais):
 
 
 def test_status_names_the_browser():
-    from slot_machine.cli import _browser
+    from slot_machine.status import browser as _browser
 
     assert _browser(CHROME_156) == "Chrome 156 on macOS"
     assert (

@@ -38,6 +38,7 @@ deploy() {
         ssh_pi '(umask 077 && cat > ~/.config/slot-machine/slot-machine.env)' < "$ROOT/config/slot-machine.env.example"
         echo "settings: ~/.config/slot-machine/slot-machine.env (template installed; run 'make config' to keep yours locally)"
     fi
+    update_signin  # after the settings: it reads them when it starts
     if ssh_pi "crontab -l 2>/dev/null | grep -qF '$MARK'"; then
         echo "cron:     on"
     else
@@ -61,6 +62,22 @@ push_config() {
 
 # The renewal page runs until killed; stop it so cron restarts it with the new code/settings.
 restart_page() { ssh_pi "pkill -u \$(id -u) -f 'slot-machin[e] --serve' || true"; }
+
+# The Chrome sign-in service (systemd --user unit slot-machine-signin, set up by hand) runs its own copy
+# of src/signin and src/slot_machine. Refresh it whenever the app is deployed, so it reads the settings
+# the same way the app does, and restart it if it runs. Servers without that copy are left alone.
+SIGNIN_DIR='.local/share/slot-machine-signin'
+update_signin() {
+    ssh_pi "test -d $SIGNIN_DIR" || return 0
+    COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -C "$ROOT/src" --exclude __pycache__ -cf - signin slot_machine |
+        ssh_pi "cd $SIGNIN_DIR && rm -rf src.new && mkdir src.new && tar -C src.new -xf - &&
+                rm -rf src.old && { [ ! -e src ] || mv src src.old; } && mv src.new src && rm -rf src.old"
+    if ssh_pi 'systemctl --user try-restart slot-machine-signin 2>/dev/null && systemctl --user is-active -q slot-machine-signin'; then
+        echo "signin:   ~/$SIGNIN_DIR/src (updated; service restarted)"
+    else
+        echo "signin:   ~/$SIGNIN_DIR/src (updated; service not running)"
+    fi
+}
 
 cron_is_on() { ssh_pi "crontab -l 2>/dev/null | grep -qF '$MARK'"; }
 

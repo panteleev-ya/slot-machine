@@ -1,4 +1,4 @@
-"""Telegram commands from the chats in TELEGRAM_CHAT_ID: /check runs a check now, /help.
+"""Telegram commands from the chats in TELEGRAM_CHAT_ID: /check runs a check now, /status, /help.
 
 Cron starts `slot-machine --poll-telegram` every minute. It long-polls Telegram for
 about a minute, answers commands as they arrive, and exits, so there is no daemon to
@@ -13,7 +13,7 @@ import html
 import time
 from datetime import date, timedelta
 
-from . import sitewatch, telegram, timeutil
+from . import sitewatch, status, telegram, timeutil
 from .ais import FetchResult
 from .config import Config
 from .messages import esc, pause_until, session_line
@@ -32,6 +32,7 @@ STALE_AFTER = timedelta(minutes=10)  # older commands (queued while offline) are
 HELP = (
     "<b>Visa slot watch</b>\n"
     "/check - check the earliest date right now\n"
+    "/status - the watch's state: earliest date, last check, session, renewal page\n"
     "/set_alert_before YYYY-MM-DD - alert me only about dates before this one\n"
     "/set_alert_before off - alert me about every sooner date\n"
     "/set_alert_before - show my setting\n"
@@ -89,6 +90,8 @@ def handle(cfg: Config, bot: dict, update: dict) -> None:
         reply = check(cfg, bot, chat_id)
     elif command == "/set_alert_before":
         reply = set_alert_before(cfg, bot, chat_id, args)
+    elif command == "/status":
+        reply = status.telegram_text(cfg, chat_id)
     elif command == "/renew":
         reply = renew_reply(cfg, chat_id)
     else:
