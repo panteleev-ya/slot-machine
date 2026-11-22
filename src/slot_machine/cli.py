@@ -5,17 +5,13 @@ from __future__ import annotations
 import argparse
 import getpass
 import re
-import socket
-import urllib.parse
 from pathlib import Path
 
-from . import __version__, ais, bot, renew, telegram, timeutil
+from . import __version__, ais, bot, renew, status, telegram, timeutil
 from .config import CONFIG_ENV_VAR, Config, default_config_path, load_config
-from .messages import pause_note, session_line
+from .messages import pause_note
 from .runner import run_check, run_ping
 from .store import load_json
-from .timeutil import fmt_clock, fmt_day, local, parse_ts
-from .watcher import alert_cutoff, current_earliest, pending_welcomes
 
 
 def cmd_set_cookie(cfg: Config, value: str) -> int:
@@ -114,63 +110,9 @@ def cmd_test_telegram(cfg: Config) -> int:
     return 1 if failed else 0
 
 
-def _browser(ua: str) -> str:
-    """ "Chrome 156 on macOS" from a User-Agent, or the start of it."""
-    found = (re.search(rf"({b})/(\d+)", ua) for b in ("Edg", "OPR", "Chrome", "Firefox", "Version"))
-    name = next((m for m in found if m), None)  # Edge and Opera also say "Chrome/"
-    os_name = next((o for o in ("Mac OS X", "Windows", "Android", "iPhone", "Linux") if o in ua), None)
-    if not name:
-        return ua[:60]
-    label = {"Edg": "Edge", "OPR": "Opera", "Version": "Safari"}.get(name.group(1), name.group(1))
-    os_label = {"Mac OS X": "macOS", "iPhone": "iOS"}.get(os_name, os_name)
-    return f"{label} {name.group(2)}" + (f" on {os_label}" if os_label else "")
-
-
 def cmd_status(cfg: Config, config_path: Path) -> int:
-    state = load_json(cfg.state_dir / "state.json", {})
-    cookies = load_json(cfg.state_dir / "cookies.json", {})
-    now = timeutil.utcnow()
-    cur = current_earliest(state)
-    last = parse_ts(state.get("last_check_at"))
-    print(f"Location:   {cfg.label} (facility {cfg.facility_id or '?'}, schedule {cfg.schedule_id or '?'})")
-    print(f"Earliest:   {fmt_day(cur, local(now, cfg).date()) if cur else 'none / unknown'}")
-    print(f"Last check: {fmt_clock(last, cfg) if last else 'never'}")
-    cookie = "cookie saved" if cookies.get("_yatri_session") else "no cookie"
-    print(f"Session:    {cookie}; {session_line(cfg, state, now)}")
-    ua = state.get("session_user_agent")
-    print(f"Browser:    {_browser(ua) + ' (sent with the session)' if ua else 'USER_AGENT setting'}")
-    pending = pending_welcomes(state, cfg)
-    own = load_json(cfg.state_dir / bot.BOT_FILE, {}).get("alert_before", {})
-
-    def describe(i: int, c: str) -> str:
-        cutoff = alert_cutoff(cfg, own, c)
-        return f"{c}{' (owner)' if i == 0 else ''}{f' [before {cutoff}]' if cutoff else ''}"
-
-    chats = ", ".join(describe(i, c) for i, c in enumerate(cfg.chat_ids)) or "none"
-    print(f"Chats:      {chats}" + (f"; welcome on the next check: {', '.join(pending)}" if pending else ""))
-    if state.get("consecutive_errors"):
-        print(f"Errors:     {state['consecutive_errors']} in a row, last: {state.get('last_error')}")
-    site = state.get("site")
-    if site:
-        since, ping = parse_ts(site["since"]), parse_ts(site.get("next_ping"))
-        print(
-            f"Visa site:  {site['state']} since {fmt_clock(since, cfg)}, {site.get('pings', 0)} ping(s) "
-            f"unanswered, next {fmt_clock(ping, cfg) if ping else 'now'}; last: {site.get('last_error')}"
-        )
-    if cfg.renew_url:
-        print(f"Renew page: {cfg.renew_url} ({'listening' if _listening(cfg) else 'not running'})")
-    print(f"Settings:   {config_path}{'' if config_path.exists() else ' (missing)'}")
-    print(f"State:      {cfg.state_dir}")
+    print(status.text(cfg, config_path))
     return 0
-
-
-def _listening(cfg: Config) -> bool:
-    port = urllib.parse.urlsplit(cfg.renew_url).port
-    try:
-        with socket.create_connection(("localhost", port), timeout=1):
-            return True
-    except OSError:
-        return False
 
 
 def main(argv=None) -> int:

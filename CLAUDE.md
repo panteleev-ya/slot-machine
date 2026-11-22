@@ -51,6 +51,8 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   repeats it. `/check` calls `run_check(force=True, via="telegram:<chat>")`, with a cooldown.
   An empty answer to `/check` never starts or extends the pause of scheduled checks
   (`runner.starts_pause(via)` -> `process(pause_on_empty=...)`); a local `--force` still renews it.
+- `/status` replies with `status.rows()`, the same rows as `--status` (make status), minus other chats'
+  ids/cutoffs and the file paths. Reads state only, never the site.
 - Per-chat cutoffs: `/set_alert_before` stores `telegram.json["alert_before"][chat]` ("" = off; missing =
   ALERT_ONLY_BEFORE). The runner reads that file and passes it to `process()`. A chat with a cutoff
   gets a "sooner" alert whenever the earliest date changes (either way) and beats it, worded against
@@ -94,6 +96,11 @@ Read-only: it never books, cancels or reschedules. Keep it that way.
   check runs, which ping instead of checking; `force` checks anyway, Telegram `/check` doesn't.
   `down`/`up` go to the owner only; `up` only after a `down` (a reached-nobody `up` waits in
   `site_up_unsent`). Down results don't touch `consecutive_errors`. Pings while it stays down log nothing.
+- Server sign-in: systemd user unit `slot-machine-signin` (hand-made, `RuntimeMaxSec=1d`) runs
+  `python3 -m signin` under xvfb from `~/.local/share/slot-machine-signin/src`. `deploy.sh` refreshes that
+  copy after the settings and `try-restart`s it. It must match the app: on 2026-11-22 a Nov 12 copy
+  couldn't expand `RENEW_URL=http://$SERVER_HOST:8080` after its daily restart, waited for the Pi forever,
+  and the session lapsed. Log: `journalctl --user -u slot-machine-signin`.
 - Sign-in loops (`signin/mac.py` main, `signin/linux.py` run_loop) both run `mac.renew_loop`: the
   sitewatch rules above (in memory; a recovery signs in at once), other failed cycles wait 2, 4,
   8 ... 60 min, and before each sign-in `wait_for_pi()` needs `/api/status` to answer (polls every
